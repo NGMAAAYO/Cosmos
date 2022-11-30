@@ -1,3 +1,4 @@
+# 关于方向的基本类
 class Direction:
 	def __init__(self, dx=0, dy=0):
 		self.dx = dx
@@ -11,33 +12,43 @@ class Direction:
 		names = [["south_west", "west", "north_west"], ["south", "center", "north"], ["south_east", "east", "north_east"]]
 		return str(names[self.dx + 1][self.dy + 1])
 
+	@staticmethod
 	def center():
 		return Direction(0, 0)
 
+	@staticmethod
 	def north():
 		return Direction(0, 1)
 
+	@staticmethod
 	def north_east():
 		return Direction(1, 1)
 
+	@staticmethod
 	def east():
 		return Direction(1, 0)
 
+	@staticmethod
 	def south_east():
 		return Direction(1, -1)
 
+	@staticmethod
 	def south():
 		return Direction(0, -1)
 
+	@staticmethod
 	def south_west():
 		return Direction(-1, -1)
 
+	@staticmethod
 	def west():
 		return Direction(-1, 0)
 
+	@staticmethod
 	def north_west():
 		return Direction(-1, 1)
 
+	@staticmethod
 	def all_directions():
 		dirs = []
 		for i in [0, -1, 1]:
@@ -45,31 +56,36 @@ class Direction:
 				dirs.append(Direction(i, j))
 		return dirs
 
-	def cardinal_directions():
-		return [Direction.north(), Direction.south(), Direction.east(), Direction.west()]
+	@staticmethod
+	def cardinal_directions(self):
+		return [self.north(), self.south(), self.east(), self.west()]
 
-	def getdx(self):
+	def get_dx(self):
 		return self.dx
 
-	def getdy(self):
+	def get_dy(self):
 		return self.dy
 
 	def opposite(self):
 		return Direction(-self.dx, -self.dy)
 
+	@staticmethod
 	def rotate_left(self):
-		dirs = [[Direction.south(), Direction.south_west(), Direction.west()], [Direction.south_east(), Direction.center(), Direction.north_west()], [Direction.south(), Direction.north_east(), Direction.north()]]
+		dirs = [[self.south(), self.south_west(), self.west()], [self.south_east(), self.center(), self.north_west()], [self.south(), self.north_east(), self.north()]]
 		return dirs[self.dx + 1][self.dy + 1]
 
+	@staticmethod
 	def rotate_right(self):
-		dirs = [[Direction.west(), Direction.north_west(), Direction.north()], [Direction.south_west(), Direction.center(), Direction.north_east()], [Direction.east(), Direction.south_east(), Direction.east()]]
+		dirs = [[self.west(), self.north_west(), self.north()], [self.south_west(), self.center(), self.north_east()], [self.east(), self.south_east(), self.east()]]
 		return dirs[self.dx + 1][self.dy + 1]
 
-	def equals(self, dir):
-		if isinstance(dir, Direction) and self.dx == dir.dx and self.dy == dir.dy:
+	def equals(self, d):
+		if isinstance(d, Direction) and self.dx == d.dx and self.dy == d.dy:
 			return True
 		return False
 
+
+# 关于地图位置的基本类
 class MapLocation:
 	def __init__(self, x=0, y=0):
 		self.x = x
@@ -84,6 +100,7 @@ class MapLocation:
 	def add(self, d):
 		return MapLocation(self.x + d.dx, self.y + d.dy)
 
+	# 获得到达目标位置的最近方向
 	def direction_to(self, loc):
 		dx = loc.x - self.x
 		dy = loc.y - self.y
@@ -97,9 +114,11 @@ class MapLocation:
 			dy = -1
 		return Direction(dx, dy)
 
+	# 与某个位置的欧几里得距离
 	def distance_to(self, loc):
 		return (loc.x - self.x) ** 2 + (loc.y - self.y) ** 2
 
+	# 是否与某个位置相邻
 	def is_adjacent_to(self, loc):
 		return abs(self.x - loc.x) <= 1 and abs(self.y - loc.y) <= 1
 
@@ -112,31 +131,64 @@ class MapLocation:
 	def equals(self, loc):
 		return self.x == loc.x and self.y == loc.y
 
-class RobotType:
+
+class EntityType:
 	def __repr__(self):
-		return self.robot_type
+		return self.type
 
 	def __str__(self):
-		return self.robot_type
+		return self.type
 
-	def __init__(self, type):
-		if True:
-			pass
+	def __init__(self, entity_type):
+		if entity_type == "destroyer":
+			self.type = entity_type
+			self.action_cooldown = 1.0
+			self.action_radius = 9
+			self.defence_ratio = 1.0
+			self.detection_radius = 25
+			self.initial_cooldown = 10
+			self.sensor_radius = 25
+		elif entity_type == "miner":
+			self.type = entity_type
+			self.action_cooldown = 2.0
+			self.action_radius = 0
+			self.defence_ratio = 1.0
+			self.detection_radius = 20
+			self.initial_cooldown = 0
+			self.sensor_radius = 20
+		elif entity_type == "scout":
+			self.type = entity_type
+			self.action_cooldown = 1.5
+			self.action_radius = 12
+			self.defence_ratio = 0.7
+			self.detection_radius = 40
+			self.initial_cooldown = 10
+			self.sensor_radius = 30
+		elif entity_type == "planet":
+			self.type = entity_type
+			self.action_cooldown = 2.0
+			self.action_radius = 2
+			self.defence_ratio = 1.0
+			self.detection_radius = 40
+			self.initial_cooldown = 0
+			self.sensor_radius = 40
 		else:
 			raise Exception("参数有误。")
 
-class RobotInfo:
-	def __init__(self, defence, ID, energy, location, team, type):
-		self.defence = defence
-		self.ID = ID
-		self.energy = energy
-		self.location = location
-		self.team = team
-		self.type = type
+
+class EntityInfo:
+	def __init__(self, defence, rid, energy, location, team, rtype, radio):
+		self.defence = defence  # 防护值
+		self.ID = rid  # 独有ID
+		self.energy = energy  # 能量值
+		self.location = location  # 当前位置
+		self.team = team  # 所属队伍
+		self.type = rtype  # 实体种类
+		self.radio = radio  # 广播值
 
 	def copy(self):
-		return RobotInfo(self.defence, self.ID, self.energy, self.location, self.team, self.type)
-		
+		return EntityInfo(self.defence, self.ID, self.energy, self.location, self.team, self.type, self.radio)
+
 
 class Team:
 	def __repr__(self):
@@ -146,19 +198,7 @@ class Team:
 		return self.tag
 
 	def __init__(self, team):
-		if team in ["A", "B", "Neutral"]:
-			self.tag = team
-		else:
-			raise Exception("参数有误。")
-
-	def opponent(self):
-		if self.tag == "A":
-			return Team("B")
-		elif self.tag == "B":
-			return Team("A")
-		else:
-			return None
+		self.tag = team
 
 	def is_player(self):
-		return self.tag in ["A", "B"]
-
+		return self.tag != "Neutral"
