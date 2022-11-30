@@ -179,6 +179,7 @@ class EntityType:
 class EntityInfo:
 	def __init__(self, defence, rid, energy, location, team, rtype, radio):
 		self.defence = defence  # 防护值
+		self.init_defence = defence  # 初始防护值
 		self.ID = rid  # 独有ID
 		self.energy = energy  # 能量值
 		self.location = location  # 当前位置
@@ -198,7 +199,7 @@ class Team:
 		return self.tag
 
 	def __init__(self, team):
-		self.tag = team
+		self.tag = str(team)
 
 	def is_player(self):
 		return self.tag != "Neutral"

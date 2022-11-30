@@ -1,4 +1,7 @@
+import math
+
 from api import *
+
 
 # 实体控制类。记录要产生的行为，并通过get_action函数回调。
 class Controller:
@@ -8,20 +11,20 @@ class Controller:
 		self.__sensed_entities = sensed_entities  # 感知到的实体
 		self.__detected_entities = detected_entities  # 探测到的实体（只有位置信息）
 		self.__aether = aether  # 附近的以太密度
-		self.__round_count = round_count # 当前的轮数
-		self.__overdrive_factor = overdrive_factor  # 全局的过载倍率
+		self.__round_count = round_count  # 当前的轮数
+		self.__overdrive_factor = overdrive_factor  # 全局的过载倍率，每一项为[队伍tag，能量，过期轮数]
 
 		# 以下为回调所调用的数据
 		self.__charged = 0  # 用以充能的点数
-		self.__tocreate = False  # 是否要建造
+		self.__to_create = False  # 是否要建造
 		self.__create_param = None  # 建造的参数
-		self.__tooverdrive = False # 是否要过载
-		self.__overdrive_range = 0 # 过载范围
-		self.__toanalyze = False # 是否要分析
-		self.__analyze_target = None # 分析的目标
-		self.__tomove = False # 是否要移动
-		self.__move_direction = None # 移动的方向
-		self.__to_set_radio = True # 是否要设置广播
+		self.__to_overdrive = False  # 是否要过载
+		self.__overdrive_range = 0  # 过载范围
+		self.__to_analyze = False  # 是否要分析
+		self.__analyze_target = None  # 分析的目标
+		self.__to_move = False  # 是否要移动
+		self.__move_direction = None  # 移动的方向
+		self.__to_set_radio = True  # 是否要设置广播
 		self.__set_radio = 0  # 设置的参数
 
 	# 根据传入的实体信息检索指定位置的实体的详细信息
@@ -32,7 +35,7 @@ class Controller:
 		return None
 
 	# 根据传入的实体信息检索指定ID的实体的详细信息
-	def __search_by_ID(self, rid):
+	def __search_by_id(self, rid):
 		for info in self.__sensed_entities:
 			if info.ID == rid:
 				return info
@@ -45,17 +48,18 @@ class Controller:
 	def get_cooldown_turns(self):
 		return int(self.__cooldown)
 
+	# 计算过载系数
 	def get_overdrive_factor(self, team):
 		index = 0
 		for i in self.__overdrive_factor:
-			if i[0] == team.tag and i[2] <= self.get_round_num():
+			if i[0] == team.tag and i[2] > self.get_round_num():  #如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
-		return 1.0 + 0.001 * index
+		return (1.0 + 0.001) ** index
 
 	def get_defence(self):
 		return self.__info.defence
 
-	def get_ID(self):
+	def get_id(self):
 		return self.__info.ID
 
 	def get_energy(self):
@@ -82,7 +86,7 @@ class Controller:
 
 	# 检查指定方向是否被阻挡
 	def is_blocked(self, d):
-		return self.__search_by_loc(self.adjacent_location(d)) != None
+		return self.__search_by_loc(self.adjacent_location(d)) is not None
 
 	# 检查目标位置是否被占用
 	def is_location_occupied(self, loc):
@@ -127,30 +131,30 @@ class Controller:
 	# 感知符合条件的实体
 	def sense_entity(self, arg):
 		if isinstance(arg, int):
-			return self.__search_by_ID(arg)
+			return self.__search_by_id(arg)
 		elif isinstance(arg, MapLocation):
 			return self.__search_by_loc(arg)
 
 	# 感知指定范围内符合条件的实体
 	def sense_nearby_entities(self, center=None, radius=None, team=None):
-		if center == None:
+		if center is None:
 			center = self.get_location()
-		if radius == None:
+		if radius is None:
 			radius = self.__info.type.sensor_radius
 		entities = []
 		for entity in self.__sensed_entities:
 			if entity.location.distance_to(center) <= radius:
-				if team == None or entity.team.tag == team.tag:
+				if team is None or entity.team.tag == team.tag:
 					entities.append(entity)
 		return entities
 
 	# 探测一定范围内所有的实体
 	def detect_nearby_entities(self, radius):
-		locs = []
+		loc = []
 		for entity in self.__detected_entities:
 			if entity.location.distance_to(self.__info.location) <= radius:
-				locs.append(entity.location)
-		return locs
+				loc.append(entity.location)
+		return loc
 
 	# 感知指定位置的以太密度
 	def sense_aether(self, loc):
@@ -184,10 +188,10 @@ class Controller:
 			return False
 		target = None
 		if isinstance(arg, int):
-			target = self.__search_by_ID(arg)
+			target = self.__search_by_id(arg)
 		elif isinstance(arg, MapLocation):
 			target = self.__search_by_loc(arg)
-		if target != None:
+		if target is not None:
 			if target.location.distance_to(self.__info.location) <= self.__info.type.action_radius:  # 检测到并且在作用范围之内
 				return True
 		return False
@@ -197,8 +201,9 @@ class Controller:
 		return self.is_ready() and not self.is_blocked(d)
 
 	# 是否可以改为指定广播值
-	def can_set_radio(self, radio):
-		return radio >= 0 and radio <= 99999999
+	@staticmethod
+	def can_set_radio(radio):
+		return 0 <= radio <= 99999999
 
 	# 尝试充能
 	def charge(self, energy):
@@ -218,7 +223,7 @@ class Controller:
 		energy = int(energy)
 		if entity_type.type == "planet":
 			raise Exception("星球无法被建造。")
-		elif self.__search_by_loc(self.adjacent_location(d)) != None:
+		elif self.__search_by_loc(self.adjacent_location(d)) is not None:
 			raise Exception("目标位置被阻塞。")
 		elif self.__info.energy < energy:
 			raise Exception("能量不足。")
@@ -229,7 +234,7 @@ class Controller:
 		else:
 			self.__info.energy -= energy
 			self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
-			self.__tocreate = True
+			self.__to_create = True
 			self.__create_param = [entity_type, d, energy]
 		return
 
@@ -240,7 +245,7 @@ class Controller:
 		elif not self.is_ready():
 			raise Exception("冷却值必须小于 1。")
 		else:
-			self.__tooverdrive = True
+			self.__to_overdrive = True
 			self.__overdrive_range = radius
 			self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
 
@@ -253,11 +258,12 @@ class Controller:
 
 		target = None
 		if isinstance(arg, int):
-			target = self.__search_by_ID(arg)
+			target = self.__search_by_id(arg)
 		elif isinstance(arg, MapLocation):
 			target = self.__search_by_loc(arg)
-		self.__toanalyze = True
+		self.__to_analyze = True
 		self.__analyze_target = target
+		self.__info.defence = max(self.__info.defence - 10, 0)
 		self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
 
 	# 尝试移动
@@ -269,7 +275,7 @@ class Controller:
 		elif not self.on_the_map(self.adjacent_location(d)):
 			raise Exception("目标位置不在地图上。")
 		else:
-			self.__tomove = True
+			self.__to_move = True
 			self.__move_direction = d
 			self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
 
@@ -285,20 +291,21 @@ class Controller:
 	def get_actions(self):
 		actions = []
 		if self.__info.type.type == "planet":
-			if self.__tocreate:
+			if self.__to_create:
 				actions.append(["create", self.__create_param])
 			actions.append(["charge", self.__charged])
+			self.__info.defence = self.__info.energy  # 星球的防护值与能量同步
 
 		elif self.__info.type.type == "destroyer":
-			if self.__tooverdrive:
+			if self.__to_overdrive:
 				actions.append(["overdrive", self.__overdrive_range])
 
 		elif self.__info.type.type == "scout":
-			if self.__toanalyze:
+			if self.__to_analyze:
 				actions.append(["analyze", self.__analyze_target])
 
 		if self.__info.type.type != "planet":
-			if self.__tomove:
+			if self.__to_move:
 				self.__info.location = self.get_location().add(self.__move_direction)  # 直接更新
 
 		if self.__to_set_radio:
@@ -307,12 +314,15 @@ class Controller:
 		return self.__info, self.__cooldown, actions  # 所有需要更新的信息
 
 
+# 实体包装类
 class Entity:
-	def __init__(self, rtype, energy, location, team, rid):
-		self.info = EntityInfo(energy*rtype.defence_ratio, rid, energy, location, team, rtype, 0)
+	def __init__(self, rtype, energy, location, team, cround, cplanet, rid):
+		self.info = EntityInfo(math.ceil(energy * rtype.defence_ratio), rid, energy, location, team, rtype, 0)
 		self.cooldown = rtype.initial_cooldown
+		self.created_round = cround
+		self.created_planet = cplanet  # 创造此实体的星球的ID
 	
-	def get_controller(self, all_entities, map, round_count, overdrive_factor):
+	def get_controller(self, all_entities, gmap, round_count, overdrive_factor):
 		sensed_entities = []
 		detected_entities = []
 		aether = []
@@ -321,11 +331,14 @@ class Entity:
 			if d <= self.info.type.detection_radius:
 				detected_entities.append(entity.info.location)
 				if d <= self.info.type.sensor_radius:
-					sensed_entities.append(entity.info)
+					info = entity.info
+					if self.info.type.type in ["destroyer", "miner"] and info.type.type == "miner":  # 非真实视野
+						info.type = EntityType("destroyer")
+					sensed_entities.append(info)
 
-		for i in range(len(map)):
-			for j in range(len(map[0])):
+		for i in range(len(gmap)):
+			for j in range(len(gmap[0])):
 				if MapLocation(i, j).distance_to(self.info.location) <= self.info.type.sensor_radius:  # i和j的顺序存疑，需要debug
-					aether.append(map[i][j])
+					aether.append(gmap[i][j])
 
 		return Controller(self.info, sensed_entities, detected_entities, aether, self.cooldown, round_count, overdrive_factor)
