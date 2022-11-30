@@ -16,7 +16,7 @@ class Instance:
 		self.entities = {}  # 所有的实体
 		self.available_entities_ids = []  # 还在场上的实体的ID
 		self.charge_list = []
-		self.overdrive_factor = []  #过载加成系数，[队伍tag，能量，过期轮数]
+		self.overdrive_factor = []  # 过载加成系数，[队伍tag，能量，过期轮数]
 		self.team_instances = []
 		for team in teams:  # 导入玩家的代码
 			self.team_instances.append(importlib.import_module(f"src.{team}.main"))
@@ -27,7 +27,7 @@ class Instance:
 	def get_overdrive_factor(self, team):
 		index = 0
 		for i in self.overdrive_factor:
-			if i[0] == team.tag and i[2] > self.get_round_num():  #如果是同一队并且过期轮数大于当前轮数，则累加
+			if i[0] == team.tag and i[2] > self.round:  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
 		return (1.0 + 0.001) ** index
 
@@ -122,7 +122,7 @@ class Instance:
 		if local_info.type.type == "miner":  # 开采舰的场合
 			if self.round >= self.entities[entity_id].created_round + 50:  # 如果已经超过了50回合
 				if self.entities[self.entities[entity_id].created_planet].info.team.tag == local_info.team.tag:  # 如果母星仍然属于本队
-					self.entities[self.entities[entity_id].created_planet].info.energy += math.floor((0.02 + 0.03 * e ** (-0.001 * self.round)) * self.round) # 增加资源
+					self.entities[self.entities[entity_id].created_planet].info.energy += math.floor((0.02 + 0.03 * math.e ** (-0.001 * self.round)) * self.round)  # 增加资源
 					self.entities[self.entities[entity_id].created_planet].info.defence = self.entities[self.entities[entity_id].created_planet].info.energy  # 更新同步防护
 
 	def end_round_check(self):  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
@@ -137,5 +137,3 @@ class Instance:
 
 		if len(alive_team) <= 1:
 			self.end_game("eliminate", alive_team[0])  # 结束游戏
-
-

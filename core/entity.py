@@ -52,7 +52,7 @@ class Controller:
 	def get_overdrive_factor(self, team):
 		index = 0
 		for i in self.__overdrive_factor:
-			if i[0] == team.tag and i[2] > self.get_round_num():  #如果是同一队并且过期轮数大于当前轮数，则累加
+			if i[0] == team.tag and i[2] > self.get_round_num():  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
 		return (1.0 + 0.001) ** index
 
