@@ -1,27 +1,35 @@
 import importlib
 import random
 import math
+import time
 import json
+from tqdm import tqdm
 
 from core.api import *
 from core.entity import Entity
+from core.classes import Map
 
 
 # 定义比赛示例的类
 class Instance:
 	def __init__(self, teams, map_path, game_round):
+		self.team_names = teams
 		self.game_round = game_round
 		self.round = 0
-		self.map = []
+		self.map = None
 		self.entities = {}  # 所有的实体
 		self.available_entities_ids = []  # 还在场上的实体的ID
+		self.charge_result = [0] * len(teams)  # 存储充能结果的对象
 		self.charge_list = []
 		self.overdrive_factor = []  # 过载加成系数，[队伍tag，能量，过期轮数]
+		self.planet_list = []  # 存储所有星球的索引
+		self.replay = {"rounds": []}  # 保存回放的对象。应为{map:[], rounds:[], winner:"", reason:""}
 		self.team_instances = []
 		for team in teams:  # 导入玩家的代码
 			self.team_instances.append(importlib.import_module(f"src.{team}.main"))
 
 		self.init_map(map_path)  # 初始化地图
+		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
 
 	# 计算过载系数
 	def get_overdrive_factor(self, team):
@@ -36,9 +44,15 @@ class Instance:
 		fmap = json.loads(f.read())  # 读取json格式的地图
 		f.close()
 
-		self.map = fmap["map"]  # 获得地图信息
+		if len(self.team_names) != fmap["players"]:  # 检查地图配置
+			raise Exception("地图配置与玩家数量不匹配。")
+
+		dx = random.randint(-68, 68)
+		dy = random.randint(-68, 68)  # 随机偏移
+		self.map = Map(fmap["map"], fmap["map_size"], dx, dy)  # 初始化地图对象
+		self.replay["map"] = self.map.to_dict()  # 获得地图信息
 		for planet in fmap["planets"]:  # 生成初始星球实体
-			self.add_entity(EntityType("planet"), planet["energy"], MapLocation(planet["x"], planet["y"]), planet["team"])
+			self.planet_list.append(self.add_entity(EntityType("planet"), planet["energy"], MapLocation(planet["x"], planet["y"]).translate(dx, dy), Team(planet["team"])))
 
 	def add_entity(self, entity_type, energy, location, team, planet=None):
 		rid = random.randint(10000, 99999)
@@ -47,37 +61,53 @@ class Instance:
 
 		self.entities[str(rid)] = Entity(entity_type, energy, location, team, self.round, planet, rid)  # 添加新的实体
 		self.available_entities_ids.append(rid)
+		return rid
+
+	# 管理全局回合的方法。
+	def run(self):
+		looper = tqdm(range(self.game_round))
+		for _ in looper:  # 执行回合循环
+			looper.set_postfix_str("Debug: {}".format(len(self.available_entities_ids)))
+			self.next_round()
+			self.new_replay()  # 每回合末调用
+
+		self.counting_result()  # 统计比赛数据
 
 	def next_round(self):
 		self.round += 1
 		self.charge_list = []  # 星球充能列表
-		random.shuffle(self.available_entities_ids)
+		random.shuffle(self.available_entities_ids)  # 打乱实体的执行顺序
+
+		for p in self.planet_list:
+			self.entities[str(p)].info.energy += math.ceil(0.2 * math.sqrt(self.round))  # 给每个星球增加资源点
+
 		for rid in self.available_entities_ids:  # 分别运行还在场上的所有实体
-			self.run_instance(rid)
+			if self.entities[str(rid)].info.team.tag != "Neutral":  # 忽略中立的实体
+				self.entities[str(rid)].cooldown -= 1  # 减少冷却
+				self.run_instance(rid)
 
 		self.end_round_check()  # 一轮最末尾进行检查，判断游戏是否结束，计算全局变量
 		
 	def run_instance(self, entity_id):
-		try:
-			entity = self.entities[str(entity_id)]  # 获取实体
-			player = self.team_instances[int(entity.info.team)].Player()  # 实例化玩家的代码
-			all_entities = []
-			for rid in self.available_entities_ids:  # 获取当前的在场实体
-				if rid != entity_id:  # 省略自己
-					all_entities.append(self.entities[str(rid)])
+		# try:
+		entity = self.entities[str(entity_id)]  # 获取实体
+		player = self.team_instances[int(entity.info.team.tag)].Player()  # 实例化玩家的代码
+		all_entities = []
+		for rid in self.available_entities_ids:  # 获取当前的在场实体
+			all_entities.append(self.entities[str(rid)])
 
-			controller = entity.get_controller(all_entities, self.map, self.round, self.overdrive_factor)  # 获取控制器，传给玩家实例
-			controller = player.run(controller)  # 运行玩家代码
-			self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
-		except Exception as err:
-			print("[Team {}] {}".format(self.entities[str(entity_id)].info.team, err))
+		controller = entity.get_controller(all_entities, self.map, self.round, self.overdrive_factor)  # 获取控制器，传给玩家实例
+		controller = player.run(controller)  # 运行玩家代码
+		self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
+		# except Exception as err:
+		# 	print("[Team {}] {}".format(self.entities[str(entity_id)].info.team, err))
 
 	def end_instance_check(self, entity_id, controller):
 		self.entities[str(entity_id)].info, self.entities[str(entity_id)].cooldown, actions = controller.get_actions()  # 更新本地实体状态
 		local_info = self.entities[str(entity_id)].info
 		for action in actions:
 			if action[0] == "create":  # 创造新的实体，参数为(type, dir, energy)
-				self.add_entity(action[1][0], action[1][2], local_info.location.add(action[1][1]), local_info.team, local_info.ID)
+				_ = self.add_entity(action[1][0], action[1][2], local_info.location.add(action[1][1]), local_info.team, local_info.ID)
 			elif action[0] == "charge":  # 充能，参数为 energy
 				self.charge_list.append((entity_id, action[1]))  # 保存id，等到回合结束后比较
 			elif action[0] == "overdrive":  # 过载，参数为 radius
@@ -86,33 +116,33 @@ class Instance:
 				for rid in self.available_entities_ids:  # 选出所有在半径内的实体
 					if self.entities[str(rid)].info.location.distance_to(local_info.location) <= action[1]:
 						targets.append(rid)
-				
-				base_energy = local_info.energy / len(targets)  # 均分能量
-				odfactor = self.get_overdrive_factor(local_info.team)  # 获得当前增益系数
-				for rid in targets:  # 依次处理
-					entity_info = self.entities[str(rid)].info
-					if entity_info.team.tag == local_info.team.tag:  # 友军的场合
-						if entity_info.type.type == "planet":
-							self.entities[str(rid)].info.energy += int(base_energy)
-							self.entities[str(rid)].info.defence += int(base_energy)  # 星球同步防护值
-						else:
-							self.entities[str(rid)].info.defence += int(base_energy * odfactor)
-							self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, self.entities[str(rid)].info.init_defence)  # 限制上限
-					else:  # 非友军的场合
-						self.entities[str(rid)].info.defence -= int(base_energy * odfactor)
-						if entity_info.type.type == "planet":
-							if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-								self.entities[str(rid)].info.defence = -self.entities[str(rid)].info.defence  # 新实体防护值等于绝对值
-								self.entities[str(rid)].info.team = entity_info.team  # 转换队伍
-							self.entities[str(rid)].info.energy = self.entities[str(rid)].info.defence  # 星球同步资源点
-						elif entity_info.type.type == "destroyer":
-							if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-								self.entities[str(rid)].info.defence = -self.entities[str(rid)].info.defence  # 新实体防护值等于绝对值
+				if len(targets) != 0:
+					base_energy = local_info.energy / len(targets)  # 均分能量
+					odfactor = self.get_overdrive_factor(local_info.team)  # 获得当前增益系数
+					for rid in targets:  # 依次处理
+						entity_info = self.entities[str(rid)].info
+						if entity_info.team.tag == local_info.team.tag:  # 友军的场合
+							if entity_info.type.type == "planet":
+								self.entities[str(rid)].info.energy += int(base_energy)
+							else:
+								self.entities[str(rid)].info.defence += int(base_energy * odfactor)
 								self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, self.entities[str(rid)].info.init_defence)  # 限制上限
-								self.entities[str(rid)].info.team = local_info.team  # 转换队伍
-						else:
-							if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-								self.available_entities_ids.remove(entity_info.ID)  # 删除实体
+						else:  # 非友军的场合
+							if entity_info.type.type == "planet":
+								self.entities[str(rid)].info.energy -= int(base_energy * odfactor)
+								if self.entities[str(rid)].info.energy < 0:  # 如果能量值小于零
+									self.entities[str(rid)].info.energy = -self.entities[str(rid)].info.energy  # 新实体能量值等于绝对值
+									self.entities[str(rid)].info.team = entity_info.team  # 转换队伍
+							else:
+								self.entities[str(rid)].info.defence -= int(base_energy * odfactor)
+								if entity_info.type.type == "destroyer":
+									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
+										self.entities[str(rid)].info.defence = -self.entities[str(rid)].info.defence  # 新实体防护值等于绝对值
+										self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, self.entities[str(rid)].info.init_defence)  # 限制上限
+										self.entities[str(rid)].info.team = local_info.team  # 转换队伍
+								else:
+									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
+										self.available_entities_ids.remove(entity_info.ID)  # 删除实体
 
 			elif action[0] == "analyze":  # 分析，参数为 target
 				if action[1].info.type.type == "miner":
@@ -120,10 +150,9 @@ class Instance:
 					self.overdrive_factor.append((action[1].info.team.tag, action[1].info.energy, self.round + 50))  # 增加增益
 
 		if local_info.type.type == "miner":  # 开采舰的场合
-			if self.round >= self.entities[entity_id].created_round + 50:  # 如果已经超过了50回合
-				if self.entities[self.entities[entity_id].created_planet].info.team.tag == local_info.team.tag:  # 如果母星仍然属于本队
-					self.entities[self.entities[entity_id].created_planet].info.energy += math.floor((0.02 + 0.03 * math.e ** (-0.001 * self.round)) * self.round)  # 增加资源
-					self.entities[self.entities[entity_id].created_planet].info.defence = self.entities[self.entities[entity_id].created_planet].info.energy  # 更新同步防护
+			if self.round >= self.entities[str(entity_id)].created_round + 50:  # 如果已经超过了50回合
+				if self.entities[str(self.entities[str(entity_id)].created_planet)].info.team.tag == local_info.team.tag:  # 如果母星仍然属于本队
+					self.entities[str(self.entities[str(entity_id)].created_planet)].info.energy += math.floor((0.02 + 0.03 * math.e ** (-0.001 * self.round)) * self.round)  # 增加资源
 
 	def end_round_check(self):  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
 		alive_team = []
@@ -136,4 +165,82 @@ class Instance:
 					self.entities[str(rid)].info.type = EntityType("destroyer")
 
 		if len(alive_team) <= 1:
-			self.end_game("eliminate", alive_team[0])  # 结束游戏
+			self.end_game("eliminate", int(alive_team[0]))  # 结束游戏
+
+		max_energy = -1  # 计算最大的能量
+		for c in self.charge_list:  # 遍历所有星球
+			max_energy = max(max_energy, c[1])
+
+		max_planet = []
+		for c in self.charge_list:  # 遍历第二次，尝试求出最大值的位置
+			if c[1] == max_energy:
+				max_planet.append(c[0])  # 收集最大值星球的索引
+
+		for c in self.charge_list:
+			if len(max_planet) == 1 and max_planet[0] == c[0]:  # 唯一最大值的场合
+				self.charge_result[int(self.entities[str(c[0])].info.team.tag)] += 1  # 充能结果加一
+			else:
+				self.entities[str(c[0])].info.energy += math.floor(c[1] / 2)  # 返还一半的能量
+
+	# 计算比赛结果的方法
+	def counting_result(self):
+		max_charge = max(self.charge_result)  # 充能最多的值
+		max_charge_team = []
+		for i, c in enumerate(self.charge_result):  # 遍历
+			if c == max_charge:
+				max_charge_team.append(i)
+		if len(max_charge_team) == 1:  # 只有一方最大的场合
+			self.end_game("final_charge", max_charge_team[0])
+		else:
+			team_planet_count = [0] * len(self.charge_result)  # 与队伍数等长的对象
+			for p in self.planet_list:
+				team_planet_count[int(self.entities[str(p)].info.team.tag)] += 1
+			most_planet = max(team_planet_count)  # 最多的星球数
+			most_planet_team = []
+			for i, c in enumerate(team_planet_count):  # 遍历
+				if c == most_planet:
+					most_planet_team.append(i)
+			if len(most_planet_team) == 1:  # 只有一方最多的场合
+				self.end_game("most_planets", most_planet_team[0])
+			else:
+				team_energy_count = [0] * len(self.charge_result)  # 与队伍数等长的对象
+				for e in list(self.entities.values()):
+					team_energy_count[int(e.info.team.tag)] += e.info.energy
+				most_energy = max(team_energy_count)  # 最多的能量数
+				most_energy_team = []
+				for i, c in enumerate(team_energy_count):  # 遍历
+					if c == most_energy:
+						most_energy_team.append(i)
+				if len(most_energy_team) == 1:  # 只有一方最多的场合
+					self.end_game("most_energy", most_energy_team[0])
+				else:
+					self.end_game("tie", None)  # 平局
+
+	# 保存这一回合至回放中
+	def new_replay(self):
+		self.replay["rounds"].append([self.entities[str(rid)].info.to_dict() for rid in self.available_entities_ids])
+
+	def save_replay(self):
+		with open(self.replay_path, "w", encoding="utf-8") as f:
+			f.write(json.dumps(self.replay))
+
+	# 结束比赛的方法
+	def end_game(self, reason, winner):
+		# 保存胜者和胜利原因
+		self.replay["winner"] = self.team_names[winner] if winner is not None else "None"
+		self.replay["reason"] = reason
+
+		print("胜者：" + self.replay["winner"])
+		if reason == "eliminate":
+			print("原因：消灭了其他所有的实体。")
+		elif reason == "final_charge":
+			print("原因：最终兵器有更多的能量点。")
+		elif reason == "most_planets":
+			print("原因：拥有更多的星球。")
+		elif reason == "most_energy":
+			print("原因：队伍所有实体的总能量更高。")
+		else:
+			print("原因：平局")
+
+		self.save_replay()
+		quit()

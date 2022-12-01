@@ -1,16 +1,16 @@
 import math
 
-from api import *
+from core.api import *
 
 
 # 实体控制类。记录要产生的行为，并通过get_action函数回调。
 class Controller:
-	def __init__(self, info, sensed_entities, detected_entities, aether, cooldown, round_count, overdrive_factor):
+	def __init__(self, info, sensed_entities, detected_entities, gmap, cooldown, round_count, overdrive_factor):
 		self.__info = info  # 传入的信息。应当在控制后更新到全局
 		self.__cooldown = cooldown  # 传入的冷却信息。应当在控制后更新到全局
 		self.__sensed_entities = sensed_entities  # 感知到的实体
 		self.__detected_entities = detected_entities  # 探测到的实体（只有位置信息）
-		self.__aether = aether  # 附近的以太密度
+		self.__map = gmap  # 地图信息
 		self.__round_count = round_count  # 当前的轮数
 		self.__overdrive_factor = overdrive_factor  # 全局的过载倍率，每一项为[队伍tag，能量，过期轮数]
 
@@ -107,10 +107,7 @@ class Controller:
 	def on_the_map(self, loc):
 		if not self.can_sense_location(loc):
 			raise Exception("超出探测范围。")
-		for p in self.__aether:
-			if p[0] == loc.x and p[1] == loc.y:
-				return True
-		return False
+		return self.__map.include(loc.x, loc.y)
 
 	# 是否可以探测指定位置
 	def can_detect_location(self, loc):
@@ -160,10 +157,9 @@ class Controller:
 	def sense_aether(self, loc):
 		if loc.distance_to(self.__info.location) > self.__info.type.detection_radius:
 			raise Exception("超出探测范围。")
-		for p in self.__aether:
-			if p[0] == loc.x and p[1] == loc.y:
-				return p[2]
-		raise Exception("目标不在地图上。")
+		if not self.on_the_map(loc):
+			raise Exception("目标不在地图上。")
+		return self.__map.get_aether(loc.x, loc.y)
 
 	# 是否有多少能量
 	def can_charge(self, energy):
@@ -178,13 +174,13 @@ class Controller:
 
 	# 是否可以在指定半径过载
 	def can_overdrive(self, radius):
-		return self.__info.type == "destroyer" and radius <= self.__info.type.action_radius and self.is_ready()
+		return self.__info.type.type == "destroyer" and radius <= self.__info.type.action_radius and self.is_ready()
 
 	# 是否可以分析指定的ID或者指定的位置
 	def can_analyze(self, arg):
 		if not self.is_ready():  # 检查冷却
 			return False
-		elif self.__info.type != "scout":
+		elif self.__info.type.type != "scout":
 			return False
 		target = None
 		if isinstance(arg, int):
@@ -198,7 +194,7 @@ class Controller:
 
 	# 是否可以向指定方向移动
 	def can_move(self, d):
-		return self.is_ready() and not self.is_blocked(d)
+		return self.is_ready() and not self.is_blocked(d) and self.on_the_map(self.adjacent_location(d))
 
 	# 是否可以改为指定广播值
 	@staticmethod
@@ -219,7 +215,7 @@ class Controller:
 			self.__charged = energy
 
 	# 尝试建造
-	def build_entity(self, entity_type, d, energy):
+	def build(self, entity_type, d, energy):
 		energy = int(energy)
 		if entity_type.type == "planet":
 			raise Exception("星球无法被建造。")
@@ -240,7 +236,7 @@ class Controller:
 
 	# 尝试过载
 	def overdrive(self, radius):
-		if self.can_overdrive(radius):
+		if not self.can_overdrive(radius):
 			raise Exception("无法以指定的参数过载。")
 		elif not self.is_ready():
 			raise Exception("冷却值必须小于 1。")
@@ -273,6 +269,7 @@ class Controller:
 		elif self.is_blocked(d):
 			raise Exception("目标位置被阻塞。")
 		elif not self.on_the_map(self.adjacent_location(d)):
+			print(self.on_the_map(self.adjacent_location(d)), self.adjacent_location(d))
 			raise Exception("目标位置不在地图上。")
 		else:
 			self.__to_move = True
@@ -325,20 +322,14 @@ class Entity:
 	def get_controller(self, all_entities, gmap, round_count, overdrive_factor):
 		sensed_entities = []
 		detected_entities = []
-		aether = []
 		for entity in all_entities:  # 获得实体能感知和探测到的所有实体
 			d = entity.info.location.distance_to(self.info.location)
 			if d <= self.info.type.detection_radius:
 				detected_entities.append(entity.info.location)
 				if d <= self.info.type.sensor_radius:
 					info = entity.info
-					if self.info.type.type in ["destroyer", "miner"] and info.type.type == "miner":  # 非真实视野
+					if self.info.type.type in ["destroyer", "miner"] and info.type.type == "miner" and info.ID != self.info.ID:  # 非真实视野
 						info.type = EntityType("destroyer")
 					sensed_entities.append(info)
 
-		for i in range(len(gmap)):
-			for j in range(len(gmap[0])):
-				if MapLocation(i, j).distance_to(self.info.location) <= self.info.type.sensor_radius:  # i和j的顺序存疑，需要debug
-					aether.append(gmap[i][j])
-
-		return Controller(self.info, sensed_entities, detected_entities, aether, self.cooldown, round_count, overdrive_factor)
+		return Controller(self.info, sensed_entities, detected_entities, gmap, self.cooldown, round_count, overdrive_factor)

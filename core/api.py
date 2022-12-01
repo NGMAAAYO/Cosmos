@@ -130,6 +130,9 @@ class MapLocation:
 
 	def equals(self, loc):
 		return self.x == loc.x and self.y == loc.y
+		
+	def to_tuple(self):
+		return self.x, self.y
 
 
 class EntityType:
@@ -175,13 +178,17 @@ class EntityType:
 		else:
 			raise Exception("参数有误。")
 
+	@staticmethod
+	def all_types():
+		return [EntityType("destroyer"), EntityType("miner"), EntityType("scout"), EntityType("planet")]
+
 
 class EntityInfo:
 	def __init__(self, defence, rid, energy, location, team, rtype, radio):
-		self.defence = defence  # 防护值
+		self.energy = energy  # 能量值
+		self.defence = defence if rtype.type != "planet" else self.energy  # 防护值
 		self.init_defence = defence  # 初始防护值
 		self.ID = rid  # 独有ID
-		self.energy = energy  # 能量值
 		self.location = location  # 当前位置
 		self.team = team  # 所属队伍
 		self.type = rtype  # 实体种类
@@ -189,6 +196,9 @@ class EntityInfo:
 
 	def copy(self):
 		return EntityInfo(self.defence, self.ID, self.energy, self.location, self.team, self.type, self.radio)
+
+	def to_dict(self):
+		return {"ID": self.ID, "energy": self.energy, "defence": self.defence, "location": self.location.to_tuple(), "team": self.team.tag, "type": self.type.type, "radio": self.radio}
 
 
 class Team:
