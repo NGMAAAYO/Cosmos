@@ -1,15 +1,18 @@
 import math
+import copy
 
 from core.api import *
 
 
 # 实体控制类。记录要产生的行为，并通过get_action函数回调。
 class Controller:
-	def __init__(self, info, sensed_entities, detected_entities, gmap, cooldown, round_count, overdrive_factor):
+	def __init__(self, info, sensed_entities, detected_entities, teams_info, charge_point, gmap, cooldown, round_count, overdrive_factor):
 		self.__info = info  # 传入的信息。应当在控制后更新到全局
 		self.__cooldown = cooldown  # 传入的冷却信息。应当在控制后更新到全局
 		self.__sensed_entities = sensed_entities  # 感知到的实体
 		self.__detected_entities = detected_entities  # 探测到的实体（只有位置信息）
+		self.__teams_info = teams_info  # 所有队伍的集合
+		self.__charge_point = charge_point  # 本队的充能点
 		self.__map = gmap  # 地图信息
 		self.__round_count = round_count  # 当前的轮数
 		self.__overdrive_factor = overdrive_factor  # 全局的过载倍率，每一项为[队伍tag，能量，过期轮数]
@@ -45,6 +48,16 @@ class Controller:
 	def __get_cooldown(self, base_cooldown):
 		return base_cooldown / self.sense_aether(self.__info.location)
 
+	def get_all_teams(self):
+		return self.__teams_info
+
+	def get_opponent(self):
+		l = []
+		for t in self.__teams_info:
+			if t.tag != self.get_team().tag:
+				l.append(t)
+		return l
+
 	def get_cooldown_turns(self):
 		return int(self.__cooldown)
 
@@ -79,10 +92,17 @@ class Controller:
 	
 	def get_radio(self):
 		return self.__info.radio
+	
+	# 本队已有的充能点
+	def get_charge_point(self):
+		return self.__charge_point
 
 	# 指定方向的相邻位置
 	def adjacent_location(self, d):
 		return self.__info.location.add(d)
+
+	def is_opponent(self, team):
+		return team.tag in [t.tag for t in self.get_opponent()]
 
 	# 检查指定方向是否被阻挡
 	def is_blocked(self, d):
@@ -99,9 +119,7 @@ class Controller:
 
 	# 检查自己是否可以执行动作
 	def is_ready(self):
-		if self.__cooldown < 1:
-			return True
-		return False
+		return self.__cooldown < 1
 
 	# 检查目标位置是否在地图上
 	def on_the_map(self, loc):
@@ -133,7 +151,7 @@ class Controller:
 			return self.__search_by_loc(arg)
 
 	# 感知指定范围内符合条件的实体
-	def sense_nearby_entities(self, center=None, radius=None, team=None):
+	def sense_nearby_entities(self, center=None, radius=None, teams=None):
 		if center is None:
 			center = self.get_location()
 		if radius is None:
@@ -141,7 +159,7 @@ class Controller:
 		entities = []
 		for entity in self.__sensed_entities:
 			if entity.location.distance_to(center) <= radius:
-				if team is None or entity.team.tag == team.tag:
+				if teams is None or entity.team.tag in [t.tag for t in teams]:
 					entities.append(entity)
 		return entities
 
@@ -319,17 +337,19 @@ class Entity:
 		self.created_round = cround
 		self.created_planet = cplanet  # 创造此实体的星球的ID
 	
-	def get_controller(self, all_entities, gmap, round_count, overdrive_factor):
+	def get_controller(self, all_entities, teams_info, charge_result, gmap, round_count, overdrive_factor):
 		sensed_entities = []
 		detected_entities = []
 		for entity in all_entities:  # 获得实体能感知和探测到的所有实体
-			d = entity.info.location.distance_to(self.info.location)
+			d = entity.location.distance_to(self.info.location)
 			if d <= self.info.type.detection_radius:
-				detected_entities.append(entity.info.location)
+				detected_entities.append(entity.location)
 				if d <= self.info.type.sensor_radius:
-					info = entity.info
-					if self.info.type.type in ["destroyer", "miner"] and info.type.type == "miner" and info.ID != self.info.ID:  # 非真实视野
-						info.type = EntityType("destroyer")
-					sensed_entities.append(info)
+					if self.info.type.type in ["destroyer", "miner"] and entity.type.type == "miner" and entity.ID != self.info.ID:  # 非真实视野
+						new_entity = copy.deepcopy(entity)
+						new_entity.type = EntityType("destroyer")
+						sensed_entities.append(new_entity)
+					else:
+						sensed_entities.append(entity)
 
-		return Controller(self.info, sensed_entities, detected_entities, gmap, self.cooldown, round_count, overdrive_factor)
+		return Controller(self.info, sensed_entities, detected_entities, teams_info, charge_result[int(self.info.team.tag)], gmap, self.cooldown, round_count, overdrive_factor)

@@ -13,7 +13,7 @@ class Player:
             self.run_miner()
         elif entity_type == "scout":
             self.run_scout()
-        return controller
+        return self.controller
 
     def run_planet(self):
         pass

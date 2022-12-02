@@ -69,12 +69,10 @@ class Direction:
 	def opposite(self):
 		return Direction(-self.dx, -self.dy)
 
-	@staticmethod
 	def rotate_left(self):
 		dirs = [[self.south(), self.south_west(), self.west()], [self.south_east(), self.center(), self.north_west()], [self.south(), self.north_east(), self.north()]]
 		return dirs[self.dx + 1][self.dy + 1]
 
-	@staticmethod
 	def rotate_right(self):
 		dirs = [[self.west(), self.north_west(), self.north()], [self.south_west(), self.center(), self.north_east()], [self.east(), self.south_east(), self.east()]]
 		return dirs[self.dx + 1][self.dy + 1]

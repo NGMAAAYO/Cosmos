@@ -67,19 +67,19 @@ class DemoPlayer:
 			color = [(200, 200, 255), (255, 200, 200)][int(entity["team"])]
 			icon = mask = None
 			if entity["type"] == "planet":
-				icon = self.colorize(self.planet_icon, color) / 2
+				icon = self.colorize(self.planet_icon, color)
 				mask = self.planet_icon_mask
 			elif entity["type"] == "destroyer":
-				icon = self.colorize(self.destroyer_icon, color) / 2
+				icon = self.colorize(self.destroyer_icon, color)
 				mask = self.destroyer_icon_mask
 			elif entity["type"] == "miner":
-				icon = self.colorize(self.miner_icon, color) / 2
+				icon = self.colorize(self.miner_icon, color)
 				mask = self.miner_icon_mask
 			elif entity["type"] == "scout":
-				icon = self.colorize(self.scout_icon, color) / 2
+				icon = self.colorize(self.scout_icon, color)
 				mask = self.scout_icon_mask
 			frame[index[0][0]: index[0][1], index[1][0]:index[1][1], :] *= np.abs(mask - 1)
-			frame[index[0][0]: index[0][1], index[1][0]:index[1][1], :] += icon * mask
+			frame[index[0][0]: index[0][1], index[1][0]:index[1][1], :] += icon / 2 * mask
 		return frame
 
 	def render_frames(self):
@@ -89,9 +89,12 @@ class DemoPlayer:
 		self.frames = frames
 
 	def play(self, play_speed=60):
+		cv2.imshow('Replay', self.frames[0])
+		cv2.waitKey(0)
 		for frame in tqdm(self.frames):
-			cv2.imshow('frame', frame)
+			cv2.imshow('Replay', frame)
 			cv2.waitKey(play_speed)
+		cv2.waitKey(0)
 		cv2.destroyAllWindows()
 
 	def save_video(self, out_path, play_speed=1):
@@ -103,7 +106,7 @@ class DemoPlayer:
 
 if __name__ == "__main__":
 	dp = DemoPlayer()
-	dp.load("./replays/replays-1669868861.rpl")
+	dp.load("./replays/replays-1669943295.rpl")
 	dp.render_frames()
-	dp.play()
-	# dp.save_video("./replays/replays-1669868861.mp4", 4)
+	dp.play(30)
+	# dp.save_video("./replays/replays-debug.mp4", 4)

@@ -6,9 +6,9 @@ class Map:
 		self.height = map_size[1]
 		self.dx = dx
 		self.dy = dy
-		for i in range(self.height):
+		for i in range(self.width):
 			line = []
-			for j in range(self.width):
+			for j in range(self.height):
 				for block in aether_dense:
 					if block["x"] == i and block["y"] == j:
 						line.append(block["aether"])
