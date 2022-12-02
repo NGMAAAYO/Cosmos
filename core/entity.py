@@ -25,10 +25,6 @@ class Controller:
 		self.__overdrive_range = 0  # 过载范围
 		self.__to_analyze = False  # 是否要分析
 		self.__analyze_target = None  # 分析的目标
-		self.__to_move = False  # 是否要移动
-		self.__move_direction = None  # 移动的方向
-		self.__to_set_radio = True  # 是否要设置广播
-		self.__set_radio = 0  # 设置的参数
 
 	# 根据传入的实体信息检索指定位置的实体的详细信息
 	def __search_by_loc(self, loc):
@@ -286,21 +282,20 @@ class Controller:
 			raise Exception("冷却值必须小于 1。")
 		elif self.is_blocked(d):
 			raise Exception("目标位置被阻塞。")
+		elif self.get_type().type == "planet":
+			raise Exception("星球无法移动。")
 		elif not self.on_the_map(self.adjacent_location(d)):
-			print(self.on_the_map(self.adjacent_location(d)), self.adjacent_location(d))
 			raise Exception("目标位置不在地图上。")
 		else:
-			self.__to_move = True
-			self.__move_direction = d
+			self.__info.location = self.adjacent_location(d)  # 直接更新
 			self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
 
 	# 尝试设置广播内容
 	def set_radio(self, radio):
 		if not self.can_set_radio(radio):
-			raise Exception("广播超出范围。")
+			raise Exception("广播值超出范围。")
 		else:
-			self.__to_set_radio = True
-			self.__set_radio = radio
+			self.__info.radio = radio
 
 	# 回调动作
 	def get_actions(self):
@@ -318,13 +313,6 @@ class Controller:
 		elif self.__info.type.type == "scout":
 			if self.__to_analyze:
 				actions.append(["analyze", self.__analyze_target])
-
-		if self.__info.type.type != "planet":
-			if self.__to_move:
-				self.__info.location = self.get_location().add(self.__move_direction)  # 直接更新
-
-		if self.__to_set_radio:
-			self.__info.radio = self.__set_radio  # 直接更新
 
 		return self.__info, self.__cooldown, actions  # 所有需要更新的信息
 

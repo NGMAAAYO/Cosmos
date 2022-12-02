@@ -70,11 +70,11 @@ class Instance:
 
 	# 管理全局回合的方法。
 	def run(self):
+		self.new_replay()  # 初始化
 		looper = tqdm(range(self.game_round))
 		for _ in looper:  # 执行回合循环
 			looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
 			self.next_round()
-			self.new_replay()  # 每回合末调用
 
 		self.counting_result()  # 统计比赛数据
 
@@ -172,6 +172,7 @@ class Instance:
 				if self.round >= entity.created_round + 300:
 					self.entities[str(rid)].info.type = EntityType("destroyer")
 
+		self.new_replay()  # 保存录像
 		if len(alive_team) <= 1:
 			self.end_game("eliminate", int(alive_team[0]))  # 结束游戏
 

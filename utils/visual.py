@@ -82,9 +82,13 @@ class DemoPlayer:
 			frame[index[0][0]: index[0][1], index[1][0]:index[1][1], :] += icon / 2 * mask
 		return frame
 
-	def render_frames(self):
+	def render_frames(self, start=0, end=-1):
 		frames = []
-		for i in tqdm(range(len(self.replay["rounds"]))):
+		arg = (start, end)
+		if end == -1:
+			arg = (start, len(self.replay["rounds"]))
+
+		for i in tqdm(range(*arg)):
 			frames.append(self.make_frame(i))
 		self.frames = frames
 
@@ -106,7 +110,7 @@ class DemoPlayer:
 
 if __name__ == "__main__":
 	dp = DemoPlayer()
-	dp.load("./replays/replays-1669943295.rpl")
+	dp.load("./replays/replays-debug.rpl")
 	dp.render_frames()
-	dp.play(30)
+	dp.play(10)
 	# dp.save_video("./replays/replays-debug.mp4", 4)
