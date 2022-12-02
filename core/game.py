@@ -49,8 +49,8 @@ class Instance:
 		if len(self.team_names) != fmap["players"]:  # 检查地图配置
 			raise Exception("地图配置与玩家数量不匹配。")
 
-		dx = random.randint(0, 500)
-		dy = random.randint(0, 500)  # 随机偏移
+		dx = random.randint(-300, 300)
+		dy = random.randint(-300, 300)  # 随机偏移
 		self.map = Map(fmap["map"], fmap["map_size"], dx, dy)  # 初始化地图对象
 		self.replay["map"] = self.map.to_dict()  # 获得地图信息
 		for planet in fmap["planets"]:  # 生成初始星球实体
