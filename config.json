@@ -1,8 +1,9 @@
 {
 	"rounds": 1000,
-	"map": "./maps/maptestbigrect.json",
+	"map": "./maps/maptestsmall.json",
 	"players": [
 		"example",
-		"ripples"
-	]
+		"example"
+	],
+	"debug": false
 }

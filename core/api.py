@@ -1,4 +1,4 @@
-# 关于方向的基本类
+# 方向的基本类
 class Direction:
 	def __init__(self, dx=0, dy=0):
 		self.dx = dx
@@ -83,7 +83,7 @@ class Direction:
 		return False
 
 
-# 关于地图位置的基本类
+# 地图位置的基本类
 class MapLocation:
 	def __init__(self, x=0, y=0):
 		self.x = x
@@ -133,6 +133,7 @@ class MapLocation:
 		return self.x, self.y
 
 
+# 实体类型的基本类
 class EntityType:
 	def __repr__(self):
 		return self.type
@@ -142,7 +143,7 @@ class EntityType:
 
 	def __init__(self, entity_type):
 		if entity_type == "destroyer":
-			self.type = entity_type
+			self.name = entity_type
 			self.action_cooldown = 1.0
 			self.action_radius = 9
 			self.defence_ratio = 1.0
@@ -150,7 +151,7 @@ class EntityType:
 			self.initial_cooldown = 10
 			self.sensor_radius = 25
 		elif entity_type == "miner":
-			self.type = entity_type
+			self.name = entity_type
 			self.action_cooldown = 2.0
 			self.action_radius = 0
 			self.defence_ratio = 1.0
@@ -158,7 +159,7 @@ class EntityType:
 			self.initial_cooldown = 0
 			self.sensor_radius = 20
 		elif entity_type == "scout":
-			self.type = entity_type
+			self.name = entity_type
 			self.action_cooldown = 1.5
 			self.action_radius = 12
 			self.defence_ratio = 0.7
@@ -166,7 +167,7 @@ class EntityType:
 			self.initial_cooldown = 10
 			self.sensor_radius = 30
 		elif entity_type == "planet":
-			self.type = entity_type
+			self.name = entity_type
 			self.action_cooldown = 2.0
 			self.action_radius = 2
 			self.defence_ratio = 1.0
@@ -174,17 +175,18 @@ class EntityType:
 			self.initial_cooldown = 0
 			self.sensor_radius = 40
 		else:
-			raise Exception("参数有误。")
+			raise Exception("无效的种类。")
 
 	@staticmethod
 	def all_types():
 		return [EntityType("destroyer"), EntityType("miner"), EntityType("scout"), EntityType("planet")]
 
 
+# 实体信息的基本类
 class EntityInfo:
 	def __init__(self, defence, rid, energy, location, team, rtype, radio):
 		self.energy = energy  # 能量值
-		self.defence = defence if rtype.type != "planet" else self.energy  # 防护值
+		self.defence = defence if rtype.name != "planet" else self.energy  # 防护值
 		self.init_defence = defence  # 初始防护值
 		self.ID = rid  # 独有ID
 		self.location = location  # 当前位置
@@ -196,7 +198,7 @@ class EntityInfo:
 		return EntityInfo(self.defence, self.ID, self.energy, self.location, self.team, self.type, self.radio)
 
 	def to_dict(self):
-		return {"ID": self.ID, "energy": self.energy, "defence": self.defence, "location": self.location.to_tuple(), "team": self.team.tag, "type": self.type.type, "radio": self.radio}
+		return {"ID": self.ID, "energy": self.energy, "defence": self.defence, "location": self.location.to_tuple(), "team": self.team.tag, "type": self.type.name, "radio": self.radio}
 
 
 class Team:

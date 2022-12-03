@@ -38,7 +38,7 @@ class Player(template.Player):
 	def run_scout(self):
 		entities = self.controller.sense_nearby_entities()
 		for entity in entities:
-			if entity.team.tag != self.controller.get_team().tag and entity.type.type == "miner":
+			if entity.team.tag != self.controller.get_team().tag and entity.type.name == "miner":
 				if self.controller.can_analyze(entity.ID):
 					self.controller.analyze(entity.ID)
 					return

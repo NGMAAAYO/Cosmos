@@ -48,11 +48,11 @@ class Controller:
 		return self.__teams_info
 
 	def get_opponent(self):
-		l = []
+		team_list = []
 		for t in self.__teams_info:
 			if t.tag != self.get_team().tag:
-				l.append(t)
-		return l
+				team_list.append(t)
+		return team_list
 
 	def get_cooldown_turns(self):
 		return int(self.__cooldown)
@@ -95,7 +95,7 @@ class Controller:
 
 	# 指定方向的相邻位置
 	def adjacent_location(self, d):
-		return self.__info.location.add(d)
+		return self.get_location().add(d)
 
 	def is_opponent(self, team):
 		return team.tag in [t.tag for t in self.get_opponent()]
@@ -106,10 +106,12 @@ class Controller:
 
 	# 检查目标位置是否被占用
 	def is_location_occupied(self, loc):
-		if not self.can_detect_location(loc):
+		if self.get_location().distance_to(loc) > self.get_type().detection_radius:
 			raise Exception("超出探测范围。")
+		elif not self.on_the_map(loc):
+			raise Exception("指定位置不在地图上。")
 		for entity in self.__detected_entities:
-			if loc.equals(entity.location):
+			if loc.equals(entity):
 				return True
 		return False
 
@@ -119,25 +121,28 @@ class Controller:
 
 	# 检查目标位置是否在地图上
 	def on_the_map(self, loc):
-		if not self.can_sense_location(loc):
+		if self.get_location().distance_to(loc) > self.get_type().detection_radius:
 			raise Exception("超出探测范围。")
 		return self.__map.include(loc.x, loc.y)
 
 	# 是否可以探测指定位置
 	def can_detect_location(self, loc):
-		return self.__info.location.distance_to(loc) <= self.__info.type.detection_radius
+		return self.get_location().distance_to(loc) <= self.get_type().detection_radius and self.on_the_map(loc)
 
 	# 是否可以探测指定半径
 	def can_detect_radius(self, radius):
-		return radius <= self.__info.type.detection_radius
+		return radius <= self.get_type().detection_radius
 
 	# 是否可以感知指定位置
 	def can_sense_location(self, loc):
-		return self.__info.location.distance_to(loc) <= self.__info.type.sensor_radius
+		if self.get_location().distance_to(loc) <= self.get_type().sensor_radius:
+			if self.on_the_map(loc):
+				return True
+		return False
 
 	# 是否可以感知指定半径
 	def can_sense_radius(self, radius):
-		return self.__info.type.sensor_radius >= radius
+		return self.get_type().sensor_radius >= radius
 
 	# 感知符合条件的实体
 	def sense_entity(self, arg):
@@ -151,7 +156,7 @@ class Controller:
 		if center is None:
 			center = self.get_location()
 		if radius is None:
-			radius = self.__info.type.sensor_radius
+			radius = self.get_type().sensor_radius
 		entities = []
 		for entity in self.__sensed_entities:
 			if entity.location.distance_to(center) <= radius:
@@ -163,47 +168,42 @@ class Controller:
 	def detect_nearby_entities(self, radius):
 		loc = []
 		for entity in self.__detected_entities:
-			if entity.location.distance_to(self.__info.location) <= radius:
-				loc.append(entity.location)
+			if entity.distance_to(self.get_location()) <= radius:
+				loc.append(entity)
 		return loc
 
 	# 感知指定位置的以太密度
 	def sense_aether(self, loc):
-		if loc.distance_to(self.__info.location) > self.__info.type.detection_radius:
-			raise Exception("超出探测范围。")
+		if loc.distance_to(self.get_location()) > self.get_type().sensor_radius:
+			raise Exception("超出感知范围。")
 		if not self.on_the_map(loc):
 			raise Exception("目标不在地图上。")
 		return self.__map.get_aether(loc.x, loc.y)
 
 	# 是否有多少能量
 	def can_charge(self, energy):
-		if self.__info.energy >= energy:
-			return True
-		return False
+		return self.get_type().name == "planet" and self.get_energy() >= energy
 
 	# 是否可以以指定的参数建造
 	def can_build(self, entity_type, d, energy):
 		energy = int(energy)
-		return entity_type.type != "planet" and not self.is_blocked(d) and self.can_charge(energy) and energy > 0 and self.is_ready()
+		return self.get_type().name == "planet" and entity_type.name != "planet" and not self.is_blocked(d) and self.get_energy() >= energy > 0 and self.is_ready()
 
 	# 是否可以在指定半径过载
 	def can_overdrive(self, radius):
-		return self.__info.type.type == "destroyer" and radius <= self.__info.type.action_radius and self.is_ready()
+		return self.get_type().name == "destroyer" and radius <= self.get_type().action_radius and self.is_ready()
 
 	# 是否可以分析指定的ID或者指定的位置
 	def can_analyze(self, arg):
-		if not self.is_ready():  # 检查冷却
-			return False
-		elif self.__info.type.type != "scout":
-			return False
-		target = None
-		if isinstance(arg, int):
-			target = self.__search_by_id(arg)
-		elif isinstance(arg, MapLocation):
-			target = self.__search_by_loc(arg)
-		if target is not None:
-			if target.location.distance_to(self.__info.location) <= self.__info.type.action_radius:  # 检测到并且在作用范围之内
-				return True
+		if self.get_type().name == "scout" and self.is_ready():
+			target = None
+			if isinstance(arg, int):
+				target = self.__search_by_id(arg)
+			elif isinstance(arg, MapLocation):
+				target = self.__search_by_loc(arg)
+			if target is not None:
+				if target.location.distance_to(self.get_location()) <= self.get_type().action_radius:  # 检测到并且在作用范围之内
+					return True
 		return False
 
 	# 是否可以向指定方向移动
@@ -218,9 +218,9 @@ class Controller:
 	# 尝试充能
 	def charge(self, energy):
 		energy = int(energy)
-		if self.__info.type.type != "planet":
+		if self.get_type().name != "planet":
 			raise Exception("只有星球可以充能。")
-		elif self.__info.energy < energy:
+		elif self.get_energy() < energy:
 			raise Exception("能量不足。")
 		elif energy <= 0:
 			raise Exception("能量必须为正整数。")
@@ -231,7 +231,9 @@ class Controller:
 	# 尝试建造
 	def build(self, entity_type, d, energy):
 		energy = int(energy)
-		if entity_type.type == "planet":
+		if self.get_type().name != "planet":
+			raise Exception("只有星球可以建造。")
+		elif entity_type.name == "planet":
 			raise Exception("星球无法被建造。")
 		elif self.__search_by_loc(self.adjacent_location(d)) is not None:
 			raise Exception("目标位置被阻塞。")
@@ -246,10 +248,11 @@ class Controller:
 			self.__cooldown += self.__get_cooldown(self.__info.type.action_cooldown)
 			self.__to_create = True
 			self.__create_param = [entity_type, d, energy]
-		return
 
 	# 尝试过载
 	def overdrive(self, radius):
+		if self.get_type().name != "destroyer":
+			raise Exception("只有战列舰可以过载。")
 		if not self.can_overdrive(radius):
 			raise Exception("无法以指定的参数过载。")
 		elif not self.is_ready():
@@ -261,6 +264,8 @@ class Controller:
 
 	# 尝试分析
 	def analyze(self, arg):
+		if self.get_type().name != "scout":
+			raise Exception("只有侦查舰可以分析。")
 		if not self.can_analyze(arg):
 			raise Exception("无法以指定的参数分析。")
 		elif not self.is_ready():
@@ -282,7 +287,7 @@ class Controller:
 			raise Exception("冷却值必须小于 1。")
 		elif self.is_blocked(d):
 			raise Exception("目标位置被阻塞。")
-		elif self.get_type().type == "planet":
+		elif self.get_type().name == "planet":
 			raise Exception("星球无法移动。")
 		elif not self.on_the_map(self.adjacent_location(d)):
 			raise Exception("目标位置不在地图上。")
@@ -300,17 +305,17 @@ class Controller:
 	# 回调动作
 	def get_actions(self):
 		actions = []
-		if self.__info.type.type == "planet":
+		if self.get_type().name == "planet":
 			if self.__to_create:
 				actions.append(["create", self.__create_param])
 			actions.append(["charge", self.__charged])
 			self.__info.defence = self.__info.energy  # 星球的防护值与能量同步
 
-		elif self.__info.type.type == "destroyer":
+		elif self.get_type().name == "destroyer":
 			if self.__to_overdrive:
 				actions.append(["overdrive", self.__overdrive_range])
 
-		elif self.__info.type.type == "scout":
+		elif self.get_type().name == "scout":
 			if self.__to_analyze:
 				actions.append(["analyze", self.__analyze_target])
 
@@ -333,7 +338,7 @@ class Entity:
 			if d <= self.info.type.detection_radius:
 				detected_entities.append(entity.location)
 				if d <= self.info.type.sensor_radius:
-					if self.info.type.type in ["destroyer", "miner"] and entity.type.type == "miner" and entity.ID != self.info.ID:  # 非真实视野
+					if self.info.type.name in ["destroyer", "miner"] and entity.type.name == "miner" and entity.ID != self.info.ID:  # 非真实视野
 						new_entity = copy.deepcopy(entity)
 						new_entity.type = EntityType("destroyer")
 						sensed_entities.append(new_entity)

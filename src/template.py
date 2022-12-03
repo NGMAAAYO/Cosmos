@@ -4,7 +4,7 @@ class Player:
     
     def run(self, controller):
         self.controller = controller
-        entity_type = controller.get_type().type
+        entity_type = controller.get_type().name
         if entity_type == "planet":
             self.run_planet()
         elif entity_type == "destroyer":

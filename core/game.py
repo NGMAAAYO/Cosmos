@@ -12,7 +12,7 @@ from core.classes import Map
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams, map_path, game_round):
+	def __init__(self, teams, map_path, game_round, debug=False):
 		self.team_names = teams
 		self.game_round = game_round
 		self.round = 0
@@ -32,6 +32,7 @@ class Instance:
 
 		self.init_map(map_path)  # 初始化地图
 		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
+		self.debug = debug
 
 	# 计算过载系数
 	def get_overdrive_factor(self, team):
@@ -91,21 +92,24 @@ class Instance:
 			if self.entities[str(rid)].info.team.tag != "Neutral":  # 忽略中立的实体
 				self.entities[str(rid)].cooldown -= 1  # 减少冷却
 				self.entities[str(rid)].cooldown = max(self.entities[str(rid)].cooldown, 0)
-				self.run_instance(rid)
+				if self.debug:
+					self.run_instance(rid)
+				else:
+					try:
+						self.run_instance(rid)
+					except Exception as err:
+						print("[Team {}] {}".format(self.entities[str(rid)].info.team, err))
 		self.end_round_check()  # 一轮最末尾进行检查，判断游戏是否结束，计算全局变量
 
 	def run_instance(self, entity_id):
-		# try:
 		entity = self.entities[str(entity_id)]  # 获取实体
 		all_entities = []
 		for rid in self.available_entities_ids:  # 获取当前的在场实体
 			all_entities.append(self.entities[str(rid)].info)
 
-		controller = self.entities[str(entity_id)].get_controller(all_entities, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)  # 获取控制器，传入副本
+		controller = entity.get_controller(all_entities, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)  # 获取控制器，传入副本
 		controller = self.entity_instances[str(entity_id)].run(controller)  # 运行玩家实例
 		self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
-		# except Exception as err:
-		# 	print("[Team {}] {}".format(self.entities[str(entity_id)].info.team, err))
 
 	def end_instance_check(self, entity_id, controller):
 		self.entities[str(entity_id)].info, self.entities[str(entity_id)].cooldown, actions = controller.get_actions()  # 更新本地实体状态
@@ -127,13 +131,13 @@ class Instance:
 					for rid in targets:  # 依次处理
 						entity_info = self.entities[str(rid)].info
 						if entity_info.team.tag == local_info.team.tag:  # 友军的场合
-							if entity_info.type.type == "planet":
+							if entity_info.type.name == "planet":
 								self.entities[str(rid)].info.energy += int(base_energy)
 							else:
 								self.entities[str(rid)].info.defence += int(base_energy * odfactor)
 								self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
 						else:  # 非友军的场合
-							if entity_info.type.type == "planet":
+							if entity_info.type.name == "planet":
 								self.entities[str(rid)].info.energy -= int(base_energy * odfactor)
 								if self.entities[str(rid)].info.energy < 0:  # 如果能量值小于零
 									self.entities[str(rid)].info.energy = -self.entities[str(rid)].info.energy  # 新实体能量值等于绝对值
@@ -141,7 +145,7 @@ class Instance:
 									self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
 							else:
 								self.entities[str(rid)].info.defence -= int(base_energy * odfactor)
-								if entity_info.type.type == "destroyer":
+								if entity_info.type.name == "destroyer":
 									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
 										self.entities[str(rid)].info.defence = -self.entities[str(rid)].info.defence  # 新实体防护值等于绝对值
 										self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
@@ -152,11 +156,11 @@ class Instance:
 										self.available_entities_ids.remove(entity_info.ID)  # 删除实体
 
 			elif action[0] == "analyze":  # 分析，参数为 target
-				if action[1].type.type == "miner" and action[1].team.tag != local_info.team.tag:
+				if action[1].type.name == "miner" and action[1].team.tag != local_info.team.tag:
 					self.available_entities_ids.remove(action[1].ID)  # 删除实体
 					self.overdrive_factor.append((local_info.team.tag, action[1].energy, self.round + 50))  # 增加增益
 
-		if local_info.type.type == "miner":  # 开采舰的场合
+		if local_info.type.name == "miner":  # 开采舰的场合
 			if self.round >= self.entities[str(entity_id)].created_round + 50:  # 如果已经超过了50回合
 				created_planet_index = str(self.entities[str(entity_id)].created_planet)
 				if self.entities[created_planet_index].info.team.tag == local_info.team.tag:  # 如果母星仍然属于本队
@@ -168,7 +172,7 @@ class Instance:
 			entity = self.entities[str(rid)]  # 遍历剩余实体
 			if entity.info.team.tag not in alive_team:  # 获得还有实体在场的队伍Tag
 				alive_team.append(entity.info.team.tag)
-			if entity.info.type.type == "miner":  # 判断进化
+			if entity.info.type.name == "miner":  # 判断进化
 				if self.round >= entity.created_round + 300:
 					self.entities[str(rid)].info.type = EntityType("destroyer")
 
