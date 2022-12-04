@@ -12,6 +12,9 @@ class Direction:
 		names = [["south_west", "west", "north_west"], ["south", "center", "north"], ["south_east", "east", "north_east"]]
 		return str(names[self.dx + 1][self.dy + 1])
 
+	def __eq__(self, d):
+		return self.equals(d)
+
 	@staticmethod
 	def center():
 		return Direction(0, 0)
@@ -95,6 +98,9 @@ class MapLocation:
 	def __str__(self):
 		return str((self.x, self.y))
 
+	def __eq__(self, loc):
+		return self.equals(loc)
+
 	def add(self, d):
 		return MapLocation(self.x + d.dx, self.y + d.dy)
 
@@ -136,10 +142,17 @@ class MapLocation:
 # 实体类型的基本类
 class EntityType:
 	def __repr__(self):
-		return self.type
+		return self.name
 
 	def __str__(self):
-		return self.type
+		return self.name
+
+	def __eq__(self, etype):
+		if isinstance(etype, EntityType):
+			return self.name == etype.name
+		elif isinstance(etype, str):
+			return self.name == etype
+		return False
 
 	def __init__(self, entity_type):
 		if entity_type == "destroyer":
@@ -207,6 +220,13 @@ class Team:
 
 	def __str__(self):
 		return self.tag
+
+	def __eq__(self, team):
+		if isinstance(team, Team):
+			return self.tag == team.tag
+		elif isinstance(team, str):
+			return self.tag == team
+		return False
 
 	def __init__(self, team):
 		self.tag = str(team)

@@ -29,7 +29,7 @@ class Controller:
 	# 根据传入的实体信息检索指定位置的实体的详细信息
 	def __search_by_loc(self, loc):
 		for info in self.__sensed_entities:
-			if info.location.equals(loc):
+			if info.location == loc:
 				return info
 		return None
 
@@ -50,7 +50,7 @@ class Controller:
 	def get_opponent(self):
 		team_list = []
 		for t in self.__teams_info:
-			if t.tag != self.get_team().tag:
+			if t != self.get_team():
 				team_list.append(t)
 		return team_list
 
@@ -61,7 +61,7 @@ class Controller:
 	def get_overdrive_factor(self, team):
 		index = 0
 		for i in self.__overdrive_factor:
-			if i[0] == team.tag and i[2] > self.get_round_num():  # 如果是同一队并且过期轮数大于当前轮数，则累加
+			if team == i[0] and i[2] > self.get_round_num():  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
 		return (1.0 + 0.001) ** index
 
@@ -98,7 +98,7 @@ class Controller:
 		return self.get_location().add(d)
 
 	def is_opponent(self, team):
-		return team.tag in [t.tag for t in self.get_opponent()]
+		return self.get_team() != team
 
 	# 检查指定方向是否被阻挡
 	def is_blocked(self, d):
@@ -111,7 +111,7 @@ class Controller:
 		elif not self.on_the_map(loc):
 			raise Exception("指定位置不在地图上。")
 		for entity in self.__detected_entities:
-			if loc.equals(entity):
+			if entity == loc:
 				return True
 		return False
 
@@ -160,7 +160,7 @@ class Controller:
 		entities = []
 		for entity in self.__sensed_entities:
 			if entity.location.distance_to(center) <= radius:
-				if teams is None or entity.team.tag in [t.tag for t in teams]:
+				if teams is None or entity.team in teams:
 					entities.append(entity)
 		return entities
 
@@ -182,20 +182,20 @@ class Controller:
 
 	# 是否有多少能量
 	def can_charge(self, energy):
-		return self.get_type().name == "planet" and self.get_energy() >= energy
+		return self.get_type() == "planet" and self.get_energy() >= energy >= 0
 
 	# 是否可以以指定的参数建造
 	def can_build(self, entity_type, d, energy):
 		energy = int(energy)
-		return self.get_type().name == "planet" and entity_type.name != "planet" and not self.is_blocked(d) and self.get_energy() >= energy > 0 and self.is_ready()
+		return self.get_type() == "planet" and entity_type != "planet" and not self.is_blocked(d) and self.get_energy() >= energy > 0 and self.is_ready()
 
 	# 是否可以在指定半径过载
 	def can_overdrive(self, radius):
-		return self.get_type().name == "destroyer" and radius <= self.get_type().action_radius and self.is_ready()
+		return self.get_type() == "destroyer" and radius <= self.get_type().action_radius and self.is_ready()
 
 	# 是否可以分析指定的ID或者指定的位置
 	def can_analyze(self, arg):
-		if self.get_type().name == "scout" and self.is_ready():
+		if self.get_type() == "scout" and self.is_ready():
 			target = None
 			if isinstance(arg, int):
 				target = self.__search_by_id(arg)
@@ -218,11 +218,11 @@ class Controller:
 	# 尝试充能
 	def charge(self, energy):
 		energy = int(energy)
-		if self.get_type().name != "planet":
+		if self.get_type() != "planet":
 			raise Exception("只有星球可以充能。")
 		elif self.get_energy() < energy:
 			raise Exception("能量不足。")
-		elif energy <= 0:
+		elif energy < 0:
 			raise Exception("能量必须为正整数。")
 		else:
 			self.__info.energy -= energy
@@ -231,9 +231,9 @@ class Controller:
 	# 尝试建造
 	def build(self, entity_type, d, energy):
 		energy = int(energy)
-		if self.get_type().name != "planet":
+		if self.get_type() != "planet":
 			raise Exception("只有星球可以建造。")
-		elif entity_type.name == "planet":
+		elif entity_type == "planet":
 			raise Exception("星球无法被建造。")
 		elif self.__search_by_loc(self.adjacent_location(d)) is not None:
 			raise Exception("目标位置被阻塞。")
@@ -251,7 +251,7 @@ class Controller:
 
 	# 尝试过载
 	def overdrive(self, radius):
-		if self.get_type().name != "destroyer":
+		if self.get_type() != "destroyer":
 			raise Exception("只有战列舰可以过载。")
 		if not self.can_overdrive(radius):
 			raise Exception("无法以指定的参数过载。")
@@ -264,7 +264,7 @@ class Controller:
 
 	# 尝试分析
 	def analyze(self, arg):
-		if self.get_type().name != "scout":
+		if self.get_type() != "scout":
 			raise Exception("只有侦查舰可以分析。")
 		if not self.can_analyze(arg):
 			raise Exception("无法以指定的参数分析。")
@@ -305,17 +305,17 @@ class Controller:
 	# 回调动作
 	def get_actions(self):
 		actions = []
-		if self.get_type().name == "planet":
+		if self.get_type() == "planet":
 			if self.__to_create:
 				actions.append(["create", self.__create_param])
 			actions.append(["charge", self.__charged])
 			self.__info.defence = self.__info.energy  # 星球的防护值与能量同步
 
-		elif self.get_type().name == "destroyer":
+		elif self.get_type() == "destroyer":
 			if self.__to_overdrive:
 				actions.append(["overdrive", self.__overdrive_range])
 
-		elif self.get_type().name == "scout":
+		elif self.get_type() == "scout":
 			if self.__to_analyze:
 				actions.append(["analyze", self.__analyze_target])
 
@@ -338,7 +338,7 @@ class Entity:
 			if d <= self.info.type.detection_radius:
 				detected_entities.append(entity.location)
 				if d <= self.info.type.sensor_radius:
-					if self.info.type.name in ["destroyer", "miner"] and entity.type.name == "miner" and entity.ID != self.info.ID:  # 非真实视野
+					if self.info.type in ["destroyer", "miner"] and entity.type == "miner" and entity.ID != self.info.ID:  # 非真实视野
 						new_entity = copy.deepcopy(entity)
 						new_entity.type = EntityType("destroyer")
 						sensed_entities.append(new_entity)

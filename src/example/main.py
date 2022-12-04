@@ -26,7 +26,7 @@ class Player(template.Player):
 	def run_destroyer(self):
 		entities = self.controller.sense_nearby_entities()
 		for entity in entities:
-			if entity.team.tag != self.controller.get_team().tag:
+			if self.controller.get_team() != entity.team:
 				if self.controller.can_overdrive(self.controller.get_type().action_radius):
 					self.controller.overdrive(self.controller.get_type().action_radius)
 					return
@@ -38,7 +38,7 @@ class Player(template.Player):
 	def run_scout(self):
 		entities = self.controller.sense_nearby_entities()
 		for entity in entities:
-			if entity.team.tag != self.controller.get_team().tag and entity.type.name == "miner":
+			if self.controller.get_team() != entity.team and entity.type == "miner":
 				if self.controller.can_analyze(entity.ID):
 					self.controller.analyze(entity.ID)
 					return
