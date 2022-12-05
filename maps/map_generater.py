@@ -20,12 +20,12 @@ def gen_planet(x, y, team, res=150):
 
 
 if __name__ == '__main__':
-	map_name = "huge_square_x64"
+	map_name = "multi_square_x64_4"
 	x = 64
 	y = 64
-	planets = [gen_planet(20, 20, 0), gen_planet(44, 44, 0), gen_planet(20, 44, 1), gen_planet(44, 20, 1)]
+	planets = [gen_planet(32, 32, "Neutral"), gen_planet(16, 16, 0), gen_planet(48, 48, 1), gen_planet(16, 48, 2), gen_planet(48, 16, 3)]
 	tmap = randomize_aether(x, y)
 
 	f = open("{}.json".format(map_name), "w", encoding="utf-8")
-	f.write(json.dumps({"players": 2, "map_size": (x, y), "map": tmap, "planets": planets}))
+	f.write(json.dumps({"players": 4, "map_size": (x, y), "map": tmap, "planets": planets}))
 	f.close()

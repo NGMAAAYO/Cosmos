@@ -1,9 +1,11 @@
 {
 	"rounds": 1000,
-	"map": "./maps/maptestsmall.json",
+	"map": "./maps/multi_square_x64_4.json",
 	"players": [
+		"ripples",
+		"weison",
 		"example",
-		"example"
+		"noact"
 	],
 	"debug": true
 }

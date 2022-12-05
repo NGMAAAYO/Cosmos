@@ -66,7 +66,8 @@ class Instance:
 
 		self.entities[str(rid)] = Entity(entity_type, energy, location, team, self.round, planet, rid)  # 添加新的实体
 		self.available_entities_ids.append(rid)
-		self.entity_instances[str(rid)] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
+		if team != "Neutral":
+			self.entity_instances[str(rid)] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
 		return rid
 
 	# 管理全局回合的方法。
