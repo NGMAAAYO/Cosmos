@@ -32,4 +32,4 @@
 
 #### def equals(self, loc):
 
-> 返回`True`或`False`，判断目标位置是否与当前位置相等
+> 返回`True`或`False，判断目标位置是否与当前位置相等

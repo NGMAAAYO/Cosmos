@@ -110,7 +110,7 @@ class DemoPlayer:
 
 if __name__ == "__main__":
 	dp = DemoPlayer(15)
-	dp.load("./replays/replays-1670180712.rpl")
+	dp.load("./replays/replays-debug.rpl")
 	dp.render_frames()
 	dp.play(30)
 	# dp.save_video("./replays/replays-debug.mp4", 4)
