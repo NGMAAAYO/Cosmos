@@ -8,7 +8,7 @@ def main():
     try:
         with open('./config.json', "r", encoding="utf-8") as f:
             config = json.loads(f.read())
-            map_file = config['map']
+            map_file = "./maps/{}.json".format(config['map'])
             players = config['players']
             rounds = config['rounds']
             debug = config['debug']

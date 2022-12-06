@@ -60,6 +60,8 @@ class Instance:
 			self.planet_list.append(self.add_entity(EntityType("planet"), planet["energy"], MapLocation(planet["x"], planet["y"]).translate(dx, dy), Team(planet["team"])))
 
 	def add_entity(self, entity_type, energy, location, team, planet=None):
+		if not self.map.include(*location.to_tuple()):
+			raise Exception("尝试在地图外生成实体。")
 		rid = random.randint(10000, 99999)
 		while str(rid) in list(self.entities.keys()):  # 生成唯一ID
 			rid = random.randint(10000, 99999)

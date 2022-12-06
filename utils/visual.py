@@ -5,9 +5,18 @@ from tqdm import tqdm
 
 
 class DemoPlayer:
-	def __init__(self, block_size=20):
+	def __init__(self, block_size=30):
 		self.block_size = block_size
 		self.default_fps = 4
+
+		self.replay = None
+		self.background = None
+		self.frames = []
+		self.w = 0
+		self.h = 0
+		self.colors = [(200, 200, 255), (255, 200, 200), (200, 255, 200), (255, 200, 255), (255, 255, 200), (200, 255, 255)]
+
+	def make_icon(self):
 		self.destroyer_icon = cv2.resize(cv2.imread("./res/destroyer.png"), (self.block_size, self.block_size))
 		self.miner_icon = cv2.resize(cv2.imread("./res/miner.png"), (self.block_size, self.block_size))
 		self.scout_icon = cv2.resize(cv2.imread("./res/scout.png"), (self.block_size, self.block_size))
@@ -17,17 +26,13 @@ class DemoPlayer:
 		self.scout_icon_mask = self.get_icon_mask(self.scout_icon)
 		self.planet_icon_mask = self.get_icon_mask(self.planet_icon)
 
-		self.replay = None
-		self.background = None
-		self.frames = []
-		self.w = 0
-		self.h = 0
-
 	def load(self, demo_path):
 		with open(demo_path, "r", encoding="utf-8") as f:
 			self.replay = json.loads(f.read())
 			self.w = self.replay["map"]["size"][0]
 			self.h = self.replay["map"]["size"][1]
+			self.block_size = int(self.block_size * 32 / max(self.w, self.h))
+			self.make_icon()
 			self.background = self.make_background()
 
 	def get_img_index(self, x, y):
@@ -64,7 +69,7 @@ class DemoPlayer:
 			x = entity["location"][0] - self.replay["map"]["origin"][0]
 			y = entity["location"][1] - self.replay["map"]["origin"][1]
 			index = self.get_img_index(x, y)
-			color = [(200, 200, 255), (255, 200, 200)][int(entity["team"])]
+			color = (255, 255, 255) if entity["team"] == "Neutral" else self.colors[int(entity["team"])]
 			icon = mask = None
 			if entity["type"] == "planet":
 				icon = self.colorize(self.planet_icon, color)
@@ -109,8 +114,8 @@ class DemoPlayer:
 
 
 if __name__ == "__main__":
-	dp = DemoPlayer(15)
+	dp = DemoPlayer()
 	dp.load("./replays/replays-debug.rpl")
 	dp.render_frames()
-	dp.play(30)
+	dp.play(20)
 	# dp.save_video("./replays/replays-debug.mp4", 4)

@@ -1,11 +1,11 @@
 {
-	"rounds": 1000,
-	"map": "./maps/multi_square_x64_4.json",
+	"rounds": 1500,
+	"map": "multi_square_x64_4",
 	"players": [
 		"ripples",
 		"weison",
 		"example",
-		"noact"
+		"example"
 	],
 	"debug": true
 }

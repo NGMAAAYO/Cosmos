@@ -187,7 +187,7 @@ class Controller:
 	# 是否可以以指定的参数建造
 	def can_build(self, entity_type, d, energy):
 		energy = int(energy)
-		return self.get_type() == "planet" and entity_type != "planet" and not self.is_blocked(d) and self.get_energy() >= energy > 0 and self.is_ready()
+		return self.get_type() == "planet" and entity_type != "planet" and not self.is_blocked(d) and self.get_energy() >= energy > 0 and self.is_ready() and self.on_the_map(self.adjacent_location(d))
 
 	# 是否可以在指定半径过载
 	def can_overdrive(self, radius):
@@ -237,6 +237,8 @@ class Controller:
 			raise Exception("星球无法被建造。")
 		elif self.__search_by_loc(self.adjacent_location(d)) is not None:
 			raise Exception("目标位置被阻塞。")
+		elif not self.on_the_map(self.adjacent_location(d)):
+			raise Exception("目标位置不在地图上。")
 		elif self.__info.energy < energy:
 			raise Exception("能量不足。")
 		elif energy <= 0:
