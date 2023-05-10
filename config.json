@@ -1,9 +1,7 @@
 {
-	"rounds": 1500,
-	"map": "multi_square_x64_4",
+	"rounds": 1000,
+	"map": "maptestsmall",
 	"players": [
-		"ripples",
-		"weison",
 		"example",
 		"example"
 	],
