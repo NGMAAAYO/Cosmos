@@ -60,8 +60,8 @@ class Direction:
 		return dirs
 
 	@staticmethod
-	def cardinal_directions(self):
-		return [self.north(), self.south(), self.east(), self.west()]
+	def cardinal_directions():
+		return [Direction.north(), Direction.south(), Direction.east(), Direction.west()]
 
 	def get_dx(self):
 		return self.dx
