@@ -19,6 +19,7 @@ class Instance:
 		self.map = None
 		self.entities = {}  # 所有的实体
 		self.available_entities_ids = []  # 还在场上的实体的ID
+		self.deleted_entities_ids = []  # 本轮已经删除的实体的ID
 		self.charge_result = [0] * len(teams)  # 存储充能结果的对象
 		self.charge_list = []
 		self.overdrive_factor = []  # 过载加成系数，[队伍tag，能量，过期轮数]
@@ -72,6 +73,12 @@ class Instance:
 			self.entity_instances[str(rid)] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
 		return rid
 
+	def remove_entity(self, entity_id):
+		self.available_entities_ids.remove(entity_id)
+		self.deleted_entities_ids.append(entity_id)
+		del self.entities[str(entity_id)]
+		del self.entity_instances[str(entity_id)]
+
 	# 管理全局回合的方法。
 	def run(self):
 		self.new_replay()  # 初始化
@@ -85,13 +92,16 @@ class Instance:
 	def next_round(self):
 		self.round += 1
 		self.charge_list = []  # 星球充能列表
+		self.deleted_entities_ids = []  # 重置删除实体列表
 		random.shuffle(self.available_entities_ids)  # 打乱实体的执行顺序
 
 		for p in self.planet_list:
 			if self.entities[str(p)].info.team != "Neutral":
 				self.entities[str(p)].info.energy += math.ceil(0.2 * math.sqrt(self.round))  # 给每个星球增加资源点
 
-		for rid in self.available_entities_ids:  # 分别运行还在场上的所有实体
+		for rid in self.available_entities_ids.copy():  # 分别运行还在场上的所有实体
+			if rid in self.deleted_entities_ids:  # 如果实体已经被删除
+				continue
 			if self.entities[str(rid)].info.team != "Neutral":  # 忽略中立的实体
 				self.entities[str(rid)].cooldown -= 1  # 减少冷却
 				self.entities[str(rid)].cooldown = max(self.entities[str(rid)].cooldown, 0)
@@ -123,7 +133,8 @@ class Instance:
 			elif action[0] == "charge":  # 充能，参数为 energy
 				self.charge_list.append((entity_id, action[1]))  # 保存id，等到回合结束后比较
 			elif action[0] == "overdrive":  # 过载，参数为 radius
-				self.available_entities_ids.remove(entity_id)  # 过载后删除本实体
+				# self.available_entities_ids.remove(entity_id)  # 过载后删除本实体
+				self.remove_entity(entity_id)  # 过载后删除本实体
 				targets = []
 				for rid in self.available_entities_ids:  # 选出所有在半径内的实体
 					if self.entities[str(rid)].info.location.distance_to(local_info.location) <= action[1]:
@@ -156,11 +167,13 @@ class Instance:
 										self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
 								else:
 									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-										self.available_entities_ids.remove(entity_info.ID)  # 删除实体
+										# self.available_entities_ids.remove(entity_info.ID)  # 删除实体
+										self.remove_entity(entity_info.ID)  # 删除实体
 
 			elif action[0] == "analyze":  # 分析，参数为 target
 				if action[1].type == "miner" and action[1].team != local_info.team:
-					self.available_entities_ids.remove(action[1].ID)  # 删除实体
+					# self.available_entities_ids.remove(action[1].ID)  # 删除实体
+					self.remove_entity(action[1].ID)  # 删除实体
 					self.overdrive_factor.append((local_info.team.tag, action[1].energy, self.round + 50))  # 增加增益
 
 		if local_info.type == "miner":  # 开采舰的场合
