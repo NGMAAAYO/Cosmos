@@ -133,7 +133,6 @@ class Instance:
 			elif action[0] == "charge":  # 充能，参数为 energy
 				self.charge_list.append((entity_id, action[1]))  # 保存id，等到回合结束后比较
 			elif action[0] == "overdrive":  # 过载，参数为 radius
-				# self.available_entities_ids.remove(entity_id)  # 过载后删除本实体
 				self.remove_entity(entity_id)  # 过载后删除本实体
 				targets = []
 				for rid in self.available_entities_ids:  # 选出所有在半径内的实体
@@ -167,12 +166,10 @@ class Instance:
 										self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
 								else:
 									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-										# self.available_entities_ids.remove(entity_info.ID)  # 删除实体
 										self.remove_entity(entity_info.ID)  # 删除实体
 
 			elif action[0] == "analyze":  # 分析，参数为 target
 				if action[1].type == "miner" and action[1].team != local_info.team:
-					# self.available_entities_ids.remove(action[1].ID)  # 删除实体
 					self.remove_entity(action[1].ID)  # 删除实体
 					self.overdrive_factor.append((local_info.team.tag, action[1].energy, self.round + 50))  # 增加增益
 
