@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}比赛记录 - Cosmos{% endblock %}
+{% block content %}
+  <div class="row">
+    <div class="col-md-12">
+      <h2>你的比赛记录</h2>
+      {% if match_history and match_history|length > 0 %}
+        <table class="table table-hover table-bordered">
+          <thead class="table-secondary">
+            <tr>
+              <th scope="col">比赛时间</th>
+              <th scope="col">对手</th>
+              <th scope="col">比分</th>
+              <th scope="col">回放</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for record in match_history %}
+              <tr>
+                <td>{{ record.timestamp | replace("T", " ") | truncate(19, True, "") }}</td>
+                <td>{{ record.opponent }}</td>
+                <td>{{ record.score }}</td>
+                <td>
+                  {% for replay in record.replays %}
+                    <a class="btn btn-sm btn-info mb-1" href="/replay/{{ replay }}" target="_blank">第{{ loop.index }}局</a>
+                  {% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p>你还没有任何比赛记录呢！</p>
+      {% endif %}
+      <button type="button" class="btn btn-secondary mt-3" onclick="window.location.href='/dashboard'">返回主页</button>
+    </div>
+  </div>
+{% endblock %}

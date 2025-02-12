@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Home - Cosmos{% endblock %}
+{% block content %}
+  <style>
+    .custom-blockquote {
+      border-left: 3px solid #0d6efd;
+      background-color: #dee2e6;
+      padding: 1.5rem;
+      border-radius: 4px;
+    }
+  </style>
+  <div class="row">
+    <div class="col-12">
+      <div class="jumbotron p-5 mb-4 bg-light rounded-3">
+        <h1 class="display-5">欢迎来到 Cosmos 在线对战平台！</h1>
+        <blockquote class="blockquote custom-blockquote">
+          <p class="lead" id="hitokoto_text">:D 获取中...</a>
+        </blockquote>
+        <script>
+          fetch('https://v1.hitokoto.cn')
+            .then(response => response.json())
+            .then(data => {
+              const hitokoto = document.querySelector('#hitokoto_text')
+              hitokoto.innerText = data.hitokoto
+            })
+            .catch(console.error)
+        </script>
+        <hr class="my-4">
+        {% if not user %}
+          <p>登录或注册以开始游戏！</p>
+          <a class="btn btn-primary btn-lg" href="/login" role="button">登录</a>
+          <a class="btn btn-success btn-lg" href="/register" role="button">注册</a>
+        {% else %}
+          <a class="btn btn-primary btn-lg" href="/dashboard" role="button">前往主页</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

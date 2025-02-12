@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Error{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+  <div class="alert alert-danger" role="alert">
+    <h1 class="alert-heading">出错了...</h1>
+    <hr>
+    <p><strong>错误细节：</strong> {{ error }}</p>
+    <p>请稍后再试</p>
+    <button type="button" class="btn btn-secondary mt-3" onclick="window.location.href='/dashboard'">返回主页</button>
+  </div>
+</div>
+{% endblock %}

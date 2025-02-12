@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}登录 - Cosmos{% endblock %}
+{% block content %}
+  <div class="row justify-content-center">
+    <div class="col-md-6">
+      <h2>登录</h2>
+      <form method="post" action="/login">
+        <div class="mb-3">
+          <label for="username" class="form-label">用户名</label>
+          <input type="text" name="username" class="form-control" id="username" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">密码</label>
+          <input type="password" name="password" class="form-control" id="password" required>
+        </div>
+        <button type="submit" class="btn btn-primary">登录</button>
+      </form>
+      <p class="mt-3">没有账户？<a href="/register">在这里注册</a>。</p>
+    </div>
+  </div>
+{% endblock %}

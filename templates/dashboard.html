@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}主页 - Cosmos{% endblock %}
+{% block content %}
+  <div class="row">
+    <div class="col-md-12">
+      <h2>主页</h2>
+      <p>天梯积分：<strong>{{ user.points }}</strong></p>
+      <hr>
+      <div class="card mb-4">
+        <div class="card-header">
+          代码上传
+        </div>
+        <div class="card-body">
+          {% if user.code_module %}
+            <p>代码 (<strong>{{ user.code_module }}</strong>) 已上传</p>
+          {% else %}
+            <p>还没有上传任何代码</p>
+          {% endif %}
+          <a class="btn btn-warning" href="/upload_code">上传 / 更新</a>
+        </div>
+      </div>
+      <hr>
+      <div class="card">
+        <div class="card-header">
+          发起比赛
+        </div>
+        <div class="card-body">
+          <form method="post" action="/start_match">
+            <div class="mb-3">
+              <label for="opponent" class="form-label">对手用户名</label>
+              <input type="text" name="opponent" class="form-control" id="opponent" placeholder="输入对手的用户名" required>
+            </div>
+            <button type="submit" class="btn btn-success">开始比赛</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
