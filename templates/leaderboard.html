@@ -16,7 +16,15 @@
           {% for account in accounts %}
             <tr>
               <td>{{ loop.index }}</td>
-              <td>{{ account.username }}</td>
+              <td>
+                {{ account.username }}
+                {% if account.username != user.username %}
+                  <form method="post" action="/start_match" style="display:inline;">
+                    <input type="hidden" name="opponent" value="{{ account.username }}">
+                    <button type="submit" class="btn btn-success btn-sm">开始比赛</button>
+                  </form>
+                {% endif %}
+              </td>
               <td>{{ account.points }}</td>
             </tr>
           {% else %}
