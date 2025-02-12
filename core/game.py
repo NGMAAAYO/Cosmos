@@ -34,6 +34,7 @@ class Instance:
 		self.init_map(map_path)  # 初始化地图
 		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
 		self.debug = debug
+		self.game_end_flag = False
 
 	# 计算过载系数
 	def get_overdrive_factor(self, team):
@@ -86,8 +87,12 @@ class Instance:
 		for _ in looper:  # 执行回合循环
 			looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
 			self.next_round()
+			if self.game_end_flag:
+				break
 
 		self.counting_result()  # 统计比赛数据
+
+		return self.replay["winner"], self.replay["reason"], self.replay_path
 
 	def next_round(self):
 		self.round += 1
@@ -103,8 +108,7 @@ class Instance:
 			if rid in self.deleted_entities_ids:  # 如果实体已经被删除
 				continue
 			if self.entities[str(rid)].info.team != "Neutral":  # 忽略中立的实体
-				self.entities[str(rid)].cooldown -= 1  # 减少冷却
-				self.entities[str(rid)].cooldown = max(self.entities[str(rid)].cooldown, 0)
+				self.entities[str(rid)].cooldown = max(self.entities[str(rid)].cooldown-1, 0)  # 减少冷却
 				if self.debug:
 					self.run_instance(rid)
 				else:
@@ -270,4 +274,4 @@ class Instance:
 			print("原因：平局")
 
 		self.save_replay()
-		quit()
+		self.game_end_flag = True
