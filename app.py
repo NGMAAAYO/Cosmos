@@ -139,7 +139,7 @@ async def register_post(request: Request, username: str = Form(...), password: s
     if username in accounts:
         return templates.TemplateResponse("register.html", {"request": request, "error": "用户名已存在。"})
     # Create new account with 1000 pts. Set code_module equal to the account name.
-    accounts[username] = {"username": username, "password": md5(password), "points": 1000, "code_module": None, "match_history": []}
+    accounts[username] = {"username": username, "password": md5(password.encode()).hexdigest(), "points": 1000, "code_module": None, "match_history": []}
     save_accounts(accounts)
     return RedirectResponse(url="/login", status_code=302)
 
@@ -155,7 +155,7 @@ async def login_get(request: Request):
 async def login_post(request: Request, username: str = Form(...), password: str = Form(...)):
     accounts = get_accounts()
     account = accounts.get(username)
-    if not account or account["password"] != md5(password):
+    if not account or account["password"] != md5(password.encode()).hexdigest():
         return templates.TemplateResponse("login.html", {"request": request, "error": "用户名或密码无效。"})
     request.session["username"] = username
     return RedirectResponse(url="/dashboard", status_code=302)
