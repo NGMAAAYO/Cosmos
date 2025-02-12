@@ -336,8 +336,6 @@ async def start_match(request: Request,
         return templates.TemplateResponse("dashboard.html", {"request": request, "error": "对手尚未上传玩家代码。", "user": user})
 
     available_maps = list(MAPS_FOLDER.glob("*.json"))
-    if len(available_maps) < 3:
-        return templates.TemplateResponse("dashboard.html", {"request": request, "error": "没有足够的地图。", "user": user})
     chosen_maps = random.sample(available_maps, 3)
     players = [username, opponent]
 
