@@ -19,7 +19,7 @@
               <td>
                 {{ account.username }}
                 {% if account.username != user.username %}
-                  <form method="post" action="/start_match" style="display:inline;">
+                  <form method="post" action="/start_match" style="display:inline; float: right;">
                     <input type="hidden" name="opponent" value="{{ account.username }}">
                     <button type="submit" class="btn btn-success btn-sm">开始比赛</button>
                   </form>
