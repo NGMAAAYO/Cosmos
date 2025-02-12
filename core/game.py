@@ -83,12 +83,18 @@ class Instance:
 	# 管理全局回合的方法。
 	def run(self):
 		self.new_replay()  # 初始化
-		looper = tqdm(range(self.game_round))
-		for _ in looper:  # 执行回合循环
-			looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
-			self.next_round()
-			if self.game_end_flag:
-				break
+		if self.debug:  # 只有debug的场合才会显示进度条
+			looper = tqdm(range(self.game_round))
+			for i in looper:  # 执行回合循环
+				looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
+				self.next_round()
+				if self.game_end_flag:
+					break
+		else:
+			for i in range(self.game_round):
+				self.next_round()
+				if self.game_end_flag:
+					break
 
 		self.counting_result()  # 统计比赛数据
 

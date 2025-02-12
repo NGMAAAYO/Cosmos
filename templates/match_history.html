@@ -17,7 +17,7 @@
           <tbody>
             {% for record in match_history %}
               <tr>
-                <td>{{ record.timestamp | replace("T", " ") | truncate(19, True, "") }}</td>
+                <td>{{ record.timestamp }}</td>
                 <td>{{ record.opponent }}</td>
                 <td>{{ record.score }}</td>
                 <td>

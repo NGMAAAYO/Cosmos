@@ -6,6 +6,7 @@ import shutil
 import random
 import zipfile
 import importlib
+import uuid  # 新增，用于生成唯一的比赛ID
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
@@ -35,6 +36,7 @@ SRC_FOLDER = Path("src")
 SRC_FOLDER.mkdir(exist_ok=True)
 
 ACCOUNTS_FILE = Path("accounts.json")
+# 将 matches 由原来的 list 变为 dict
 MATCHES_FILE = Path("matches.json")
 MAPS_FOLDER = Path("maps")
 REPLAYS_FOLDER = Path("replays")
@@ -43,7 +45,7 @@ for folder in [MAPS_FOLDER, REPLAYS_FOLDER]:
     folder.mkdir(exist_ok=True)
 
 ############################
-# Utility functions & Persistence (same as before)
+# Utility functions & Persistence
 ############################
 
 def load_json(file: Path) -> Any:
@@ -51,7 +53,11 @@ def load_json(file: Path) -> Any:
         with open(file, "r", encoding="utf-8") as f:
             return json.load(f)
     else:
-        return {} if file == ACCOUNTS_FILE else []
+        # 对于 accounts.json 返回字典，对于 matches.json 返回字典
+        if file == ACCOUNTS_FILE or file == MATCHES_FILE:
+            return {}
+        else:
+            return []
 
 def save_json(file: Path, data: Any) -> None:
     with open(file, "w", encoding="utf-8") as f:
@@ -63,10 +69,10 @@ def get_accounts() -> Dict[str, Any]:
 def save_accounts(accounts: Dict[str, Any]) -> None:
     save_json(ACCOUNTS_FILE, accounts)
 
-def get_matches() -> List[Any]:
+def get_matches() -> Dict[str, Any]:
     return load_json(MATCHES_FILE)
 
-def save_matches(matches: List[Any]) -> None:
+def save_matches(matches: Dict[str, Any]) -> None:
     save_json(MATCHES_FILE, matches)
 
 ############################
@@ -80,7 +86,7 @@ def run_small_match(map_file: str, players: List[str]) -> Dict[str, Any]:
     replay_fullpath = REPLAYS_FOLDER / replay_filename
     game.replay_path = str(replay_fullpath)
     winner, reason, _ = game.run()
-    
+  
     # Compress the .rpl file into a zip archive
     zip_filename = replay_filename.rsplit('.', 1)[0] + ".zip"
     zip_fullpath = REPLAYS_FOLDER / zip_filename
@@ -88,7 +94,7 @@ def run_small_match(map_file: str, players: List[str]) -> Dict[str, Any]:
         zipf.write(replay_fullpath, arcname=replay_filename)
     # Optionally remove the original .rpl file.
     replay_fullpath.unlink(missing_ok=True)
-    
+  
     # Return the zip filename instead.
     return {"winner": winner, "replay": zip_filename}
 
@@ -224,8 +230,8 @@ async def upload_code_post(request: Request, file: UploadFile = File(...), user:
     finally:
         if tmp_zip_path.exists():
             tmp_zip_path.unlink()
-            
-    # --- Validation Step: Ensure that main.py in the uploaded code defines a class Player with a run() method ---    
+          
+    # --- Validation Step: Ensure that main.py in the uploaded code defines a class Player with a run() method ---  
     try:
         # We expect the extracted code to be in src/{username}/main.py.
         # Ensure that the "src" folder is on sys.path.
@@ -252,14 +258,14 @@ async def upload_code_post(request: Request, file: UploadFile = File(...), user:
         # Remove the SRC_FOLDER path from sys.path if it was added.
         if sys.path[0] == str(SRC_FOLDER):
             sys.path.pop(0)
-            
+          
     # If validation passed, then update account data.
     accounts = get_accounts()
     accounts[user["username"]]["code_module"] = user["username"]
     save_accounts(accounts)
     return templates.TemplateResponse("upload_code.html", {"request": request, "message": "上传及解压成功。", "user": accounts[user["username"]]})
 
-# Leaderboard, Match History endpoints remain the same.
+# Leaderboard, Match History endpoints remain similar.
 @app.get("/leaderboard")
 async def leaderboard(request: Request, user: dict = Depends(get_current_user)):
     accounts = get_accounts()
@@ -268,7 +274,15 @@ async def leaderboard(request: Request, user: dict = Depends(get_current_user)):
 
 @app.get("/match_history")
 async def match_history(request: Request, user: dict = Depends(require_user)):
-    return templates.TemplateResponse("match_history.html", {"request": request, "match_history": user.get("match_history", []), "user": user})
+    matches = get_matches()
+    match_history = []
+    for match_id in user.get("match_history", []):
+        m = matches[match_id].copy()
+        m["opponent"] = m["player_B"] if m["player_A"] == user["username"] else m["player_A"]
+        m["timestamp"] = str(datetime.fromisoformat(m["timestamp"]))[:-7]
+        match_history.append(m)
+
+    return templates.TemplateResponse("match_history.html", {"request": request, "match_history": match_history, "user": user})
 
 def process_match(username: str, opponent: str, chosen_maps: List[Path], players: List[str]):
     accounts = get_accounts()
@@ -286,37 +300,33 @@ def process_match(username: str, opponent: str, chosen_maps: List[Path], players
             win_count[res["winner"]] += 1
         replay_links.append(res["replay"])
 
-    diff = (win_count[players[0]] - win_count[players[1]]) * 100
-    accounts[username]["points"] += diff
-    accounts[opponent]["points"] -= diff
+    diff = (win_count[players[0]] - win_count[players[1]]) * 20
+    if diff != 0:
+        transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
+        accounts[username]["points"] += transfer if diff > 0 else -transfer
+        accounts[opponent]["points"] += -transfer if diff > 0 else transfer
 
-    match_record = {
-        "timestamp": datetime.now().isoformat(),
-        "opponent": opponent,
-        "score": f"{win_count[players[0]]}:{win_count[players[1]]}",
-        "replays": replay_links
-    }
-    accounts[username]["match_history"].append(match_record)
-    opp_record = {  # record for opponent
-        "timestamp": datetime.now().isoformat(),
-        "opponent": username,
-        "score": f"{win_count[players[1]]}:{win_count[players[0]]}",
-        "replays": replay_links
-    }
-    accounts[opponent]["match_history"].append(opp_record)
-    save_accounts(accounts)
-
-    matches = get_matches()
+    # 生成唯一比赛ID
+    match_id = str(uuid.uuid4())
     global_record = {
+        "id": match_id,
         "timestamp": datetime.now().isoformat(),
         "player_A": username,
         "player_B": opponent,
         "score": f"{win_count[players[0]]}:{win_count[players[1]]}",
         "replays": replay_links
     }
-    matches.append(global_record)
+
+    # 将全局比赛记录存储在 matches 字典中
+    matches = get_matches()
+    matches[match_id] = global_record
     save_matches(matches)
-    # You could also log the result or send updates via websocket if needed.
+
+    # 仅保存比赛ID到各自账号的 match_history 数组
+    match_record_id = match_id
+    accounts[username]["match_history"].append(match_record_id)
+    accounts[opponent]["match_history"].append(match_record_id)
+    save_accounts(accounts)
 
 @app.post("/start_match")
 async def start_match(request: Request,
@@ -341,10 +351,10 @@ async def start_match(request: Request,
     chosen_maps = [random.choice(available_maps) for _ in range(3)]
     players = [username, opponent]
 
-    # Instead of processing the match inline, add it as a background task.
+    # 将比赛任务放入后台执行。
     background_tasks.add_task(process_match, username, opponent, chosen_maps, players)
 
-    # Immediately return a response.
+    # 立即返回响应
     return templates.TemplateResponse("dashboard.html", {"request": request, "message": "比赛已开始！比赛结果将在比赛结束后更新。", "user": user})
 
 
