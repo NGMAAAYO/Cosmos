@@ -18,7 +18,15 @@
         <tbody>
           {% for record in match_history %}
             <tr id="match-row-{{ record.id }}">
-              <td>{{ record.timestamp }}</td>
+              <td>
+                <span id="timestamp-{{ record.id }}"></span>
+                <script>
+                  var timestamp = {{ record.timestamp }};
+                  var date = new Date(timestamp * 1000);
+                  var formattedTime = date.toLocaleString();
+                  document.getElementById("timestamp-{{ record.id }}").innerText = formattedTime;
+                </script>
+              </td>
               <td>{{ record.opponent }}</td>
               <td>{{ record.score }}</td>
               <td id="match-status-{{ record.id }}">{{ record.status if record.status else "未知" }}</td>

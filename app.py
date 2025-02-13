@@ -10,6 +10,7 @@ import zipfile
 import threading
 import importlib
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from hashlib import md5
 from pathlib import Path
 from multiprocessing import Manager
@@ -94,8 +95,8 @@ def save_matches(matches: Dict[str, Any]) -> None:
 
 def run_small_match(map_file: str, players: List[str], match_id: str, mini_index: int, shared_dict: Dict[str, Any]) -> Dict[str, Any]:
     game = Instance(players, map_file, game_round=1000, debug=False)
-    
-    replay_filename = f"replay_{players[0]}_{players[1]}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.rpl"
+
+    replay_filename = f"replay_{players[0]}_{players[1]}_{int(datetime.now().timestamp())}.rpl"
     replay_fullpath = REPLAYS_FOLDER / replay_filename
     game.replay_path = str(replay_fullpath)
 
@@ -297,9 +298,9 @@ async def match_history(request: Request, user: dict = Depends(require_user)):
         if match_id in matches:
             m = matches[match_id].copy()
             m["opponent"] = m["player_B"] if m["player_A"] == user["username"] else m["player_A"]
-            m["timestamp"] = str(datetime.fromisoformat(m["timestamp"]))[:-7]
             match_history.append(m)
 
+    match_history = sorted(match_history, key=lambda m: m["timestamp"], reverse=True)
     return templates.TemplateResponse("match_history.html", {"request": request, "match_history": match_history, "user": user})
 
 def process_match(username: str, opponent: str, chosen_maps: List[Path], players: List[str]):
@@ -308,7 +309,7 @@ def process_match(username: str, opponent: str, chosen_maps: List[Path], players
     # 在发起后台任务时，先将比赛记录写入，状态为“进行中”，同时初始化进度信息
     global_record = {
         "id": match_id,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": int(datetime.now().timestamp()),
         "player_A": username,
         "player_B": opponent,
         "score": "0:0",
