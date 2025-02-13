@@ -7,6 +7,7 @@ import time
 import shutil
 import random
 import zipfile
+import threading
 import importlib
 from datetime import datetime
 from hashlib import md5
@@ -41,6 +42,7 @@ ACCOUNTS_FILE = Path("accounts.json")
 MATCHES_FILE = Path("matches.json")
 MAPS_FOLDER = Path("maps")
 REPLAYS_FOLDER = Path("replays")
+MATCH_LOCK = threading.Lock()
 
 for folder in [MAPS_FOLDER, REPLAYS_FOLDER]:
     folder.mkdir(exist_ok=True)
@@ -311,7 +313,7 @@ def process_match(username: str, opponent: str, chosen_maps: List[Path], players
         "player_B": opponent,
         "score": "0:0",
         "replays": [],
-        "status": "ongoing"
+        "status": "queued"
     }
     matches = get_matches()
     matches[match_id] = global_record
@@ -322,37 +324,42 @@ def process_match(username: str, opponent: str, chosen_maps: List[Path], players
     accounts[opponent]["match_history"].append(match_id)
     save_accounts(accounts)
 
-    global_manager, ongoing_matches = get_global_manager()
-    ongoing_matches[match_id] = global_manager.list([0, 0, 0])
-    
-    results = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(run_small_match, str(map_path), players, match_id, i, ongoing_matches)
-                   for i, map_path in enumerate(chosen_maps)]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
+    with MATCH_LOCK:
+        matches = get_matches()
+        matches[match_id]["status"] = "ongoing"
+        save_matches(matches)
+        global_manager, ongoing_matches = get_global_manager()
+        ongoing_matches[match_id] = global_manager.list([0, 0, 0])
+        
+        results = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(run_small_match, str(map_path), players, match_id, i, ongoing_matches)
+                    for i, map_path in enumerate(chosen_maps)]
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
 
-    # 根据各局结果统计分数
-    win_count = {players[0]: 0, players[1]: 0}
-    replay_links = []
-    for res in results:
-        if res["winner"] != "None":
-            win_count[res["winner"]] += 1
-        replay_links.append(res["replay"])
-    
-    # 积分计算（与原代码一致）
-    diff = (win_count[players[0]] - win_count[players[1]]) * 20
-    if diff != 0:
-        transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
-        accounts[username]["points"] += transfer if diff > 0 else -transfer
-        accounts[opponent]["points"] += -transfer if diff > 0 else transfer
-    
-    # 更新比赛记录：比分、回放链接及状态置为“完成”
-    global_record["score"] = f"{win_count[players[0]]}:{win_count[players[1]]}"
-    global_record["replays"] = replay_links
-    global_record["status"] = "finished"
-    matches[match_id] = global_record
-    save_matches(matches)
+        # 根据各局结果统计分数
+        win_count = {players[0]: 0, players[1]: 0}
+        replay_links = []
+        for res in results:
+            if res["winner"] != "None":
+                win_count[res["winner"]] += 1
+            replay_links.append(res["replay"])
+
+        diff = (win_count[players[0]] - win_count[players[1]]) * 20
+        if diff != 0:
+            accounts = get_accounts()
+            transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
+            accounts[username]["points"] += transfer if diff > 0 else -transfer
+            accounts[opponent]["points"] += -transfer if diff > 0 else transfer
+            save_accounts(accounts)
+
+        global_record["score"] = f"{win_count[players[0]]}:{win_count[players[1]]}"
+        global_record["replays"] = replay_links
+        global_record["status"] = "finished"
+        matches = get_matches()
+        matches[match_id] = global_record
+        save_matches(matches)
 
 @app.get("/match_progress/{match_id}")
 async def match_progress(match_id: str, user: dict = Depends(require_user)):
@@ -363,7 +370,7 @@ async def match_progress(match_id: str, user: dict = Depends(require_user)):
     
     progress_list = ongoing_matches.get(match_id)
     if progress_list is None:
-        raise HTTPException(status_code=404, detail="比赛未开始。")
+        progress_list = [0, 0, 0]
 
     return {"match_id": match_id, "progress": list(progress_list), "status": matches[match_id].get("status", "ongoing")}
 

@@ -28,10 +28,12 @@
                     <div id="progress-bar-{{ record.id }}" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
                       style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                   </div>
-                {% else %}
+                {% elif record.status == "finished" %}
                   {% for replay in record.replays %}
                     <a class="btn btn-sm btn-info mb-1" href="/replay/{{ replay }}" target="_blank">第{{ loop.index }}局</a>
                   {% endfor %}
+                {% else %} 
+                  <span>队列中</span>
                 {% endif %}
               </td>
             </tr>
@@ -71,13 +73,15 @@ function fetchProgress(match_id) {
 }
 
 document.addEventListener("DOMContentLoaded", function() {
-    setInterval(function() {
-        {% for record in match_history %}
-          {% if record.status == "ongoing" %}
-            fetchProgress("{{ record.id }}");
-          {% endif %}
-        {% endfor %}
-    }, 2000);
+  function callProgressFetch() {
+    {% for record in match_history %}
+      {% if record.status == "ongoing" %}
+      fetchProgress("{{ record.id }}");
+      {% endif %}
+    {% endfor %}
+  }
+  callProgressFetch();
+  setInterval(callProgressFetch, 2000);
 });
 </script>
 {% endblock %}
