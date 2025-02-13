@@ -22,11 +22,27 @@
             <li class="nav-item"><a class="nav-link" href="/dashboard">主页</a></li>
             <li class="nav-item"><a class="nav-link" href="/leaderboard">排行榜</a></li>
             <li class="nav-item"><a class="nav-link" href="/match_history">比赛记录</a></li>
-            <li class="nav-item"><a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos/tree/main">GitHub</a></li>
-            <li class="nav-item"><a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos/tree/main/documents">开发文档</a></li>
-            <li class="nav-item"><a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos-Client">客户端</a></li>
           </ul>
           <ul class="navbar-nav">
+            <li class="nav-item dropdown ms-auto d-none d-md-block">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              开发资源
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="https://github.com/NGMAAAYO/Cosmos/tree/main">GitHub</a></li>
+              <li><a class="dropdown-item" href="https://github.com/NGMAAAYO/Cosmos/tree/main/documents">开发文档</a></li>
+              <li><a class="dropdown-item" href="https://github.com/NGMAAAYO/Cosmos-Client">客户端</a></li>
+              </ul>
+            </li>
+            <li class="nav-item d-block d-md-none">
+              <a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos/tree/main">GitHub</a>
+            </li>
+            <li class="nav-item d-block d-md-none">
+              <a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos/tree/main/documents">开发文档</a>
+            </li>
+            <li class="nav-item d-block d-md-none">
+              <a class="nav-link" href="https://github.com/NGMAAAYO/Cosmos-Client">客户端</a>
+            </li>
             {% if user %}
                 <li class="nav-item d-flex align-items-center">
                 <span class="navbar-text text-white me-2">{{ user.username }}</span>
