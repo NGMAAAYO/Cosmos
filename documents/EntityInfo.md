@@ -1,33 +1,36 @@
 ## EntityInfo
 
-> 定义实体信息的基本类
+[EntityInfo](https://github.com/NGMAAAYO/Cosmos/blob/9a101853691e34b9c8d3f7b109fbe916e227326b/core/api.py#L199) 类定义了实体信息的基本概念。
+
+构造方法：core.api.EntityInfo(type)  
+- type (str): 实体类型，`destroyer`、`scout`、`miner` 或 `planet`  
 
 ### 参数
 
-#### defence
+#### defence: int
 
 > 返回实体的防护值
 
-#### ID
+#### ID: int
 
 > 返回实体的`ID`
 
-#### energy
+#### energy: int
 
 > 返回实体的能量值
 
-#### location
+#### location: [MapLocation](./MapLocation.md)
 
-> 返回实体的位置 `MapLocation`
+> 返回实体的位置
 
-#### team
+#### team: [Team](./Team.md)
 
-> 返回实体的队伍 `Team`
+> 返回实体的队伍
 
-#### type
+#### type: [EntityType](./EntityType.md)
 
-> 返回实体的种类 `EntityType`
+> 返回实体的种类
 
-#### radio
+#### radio: int
 
 > 返回实体的无线电
