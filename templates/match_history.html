@@ -1,38 +1,83 @@
 {% extends "base.html" %}
 {% block title %}比赛记录 - Cosmos{% endblock %}
 {% block content %}
-  <div class="row">
-    <div class="col-md-12">
-      <h2>你的比赛记录</h2>
-      {% if match_history and match_history|length > 0 %}
-        <table class="table table-hover table-bordered">
-          <thead class="table-secondary">
-            <tr>
-              <th scope="col">比赛时间</th>
-              <th scope="col">对手</th>
-              <th scope="col">比分</th>
-              <th scope="col">回放</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for record in match_history %}
-              <tr>
-                <td>{{ record.timestamp }}</td>
-                <td>{{ record.opponent }}</td>
-                <td>{{ record.score }}</td>
-                <td>
+<div class="row">
+  <div class="col-md-12">
+    <h2>你的比赛记录</h2>
+    {% if match_history and match_history|length > 0 %}
+      <table class="table table-hover table-bordered">
+        <thead class="table-secondary">
+          <tr>
+            <th scope="col">比赛时间</th>
+            <th scope="col">对手</th>
+            <th scope="col">比分</th>
+            <th scope="col">状态</th>
+            <th scope="col">回放/进度</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for record in match_history %}
+            <tr id="match-row-{{ record.id }}">
+              <td>{{ record.timestamp }}</td>
+              <td>{{ record.opponent }}</td>
+              <td>{{ record.score }}</td>
+              <td id="match-status-{{ record.id }}">{{ record.status if record.status else "未知" }}</td>
+              <td>
+                {% if record.status == "ongoing" %}
+                  <div class="progress" style="width: 200px;">
+                    <div id="progress-bar-{{ record.id }}" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"
+                      style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                  </div>
+                {% else %}
                   {% for replay in record.replays %}
                     <a class="btn btn-sm btn-info mb-1" href="/replay/{{ replay }}" target="_blank">第{{ loop.index }}局</a>
                   {% endfor %}
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p>你还没有任何比赛记录呢！</p>
-      {% endif %}
-      <button type="button" class="btn btn-secondary mt-3" onclick="window.location.href='/dashboard'">返回主页</button>
-    </div>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>你还没有任何比赛记录呢！</p>
+    {% endif %}
+    <button type="button" class="btn btn-secondary mt-3" onclick="window.location.href='/dashboard'">返回主页</button>
   </div>
+</div>
+
+<script>
+function fetchProgress(match_id) {
+    fetch(`/match_progress/${match_id}`)
+    .then(response => response.json())
+    .then(data => {
+        let progressArray = data.progress;
+        let maxRound = 1000;
+        let sum = progressArray.reduce((a, b) => a + b, 0);
+        let avg = sum / progressArray.length;
+        let percent = Math.min(Math.round((avg / maxRound) * 100), 100);
+        console.log(`Match ${match_id} progress: ${percent}%`);
+        let bar = document.getElementById(`progress-bar-${match_id}`);
+        if(bar) {
+            bar.style.width = percent + "%";
+            bar.setAttribute("aria-valuenow", percent);
+            bar.innerText = percent + "%";
+        }
+        if(data.status === "finished") {
+            document.getElementById(`match-status-${match_id}`).innerText = "完成";
+            location.reload();
+        }
+    })
+    .catch(error => console.error("获取进度错误：", error));
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    setInterval(function() {
+        {% for record in match_history %}
+          {% if record.status == "ongoing" %}
+            fetchProgress("{{ record.id }}");
+          {% endif %}
+        {% endfor %}
+    }, 2000);
+});
+</script>
 {% endblock %}

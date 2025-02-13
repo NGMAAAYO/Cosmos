@@ -2,14 +2,16 @@ import os
 import re
 import sys
 import json
+import uuid
+import time
 import shutil
 import random
 import zipfile
 import importlib
-import uuid  # 新增，用于生成唯一的比赛ID
 from datetime import datetime
 from hashlib import md5
 from pathlib import Path
+from multiprocessing import Manager
 from typing import Optional, List, Dict, Any
 
 from fastapi import BackgroundTasks
@@ -36,13 +38,22 @@ SRC_FOLDER = Path("src")
 SRC_FOLDER.mkdir(exist_ok=True)
 
 ACCOUNTS_FILE = Path("accounts.json")
-# 将 matches 由原来的 list 变为 dict
 MATCHES_FILE = Path("matches.json")
 MAPS_FOLDER = Path("maps")
 REPLAYS_FOLDER = Path("replays")
 
 for folder in [MAPS_FOLDER, REPLAYS_FOLDER]:
     folder.mkdir(exist_ok=True)
+
+def get_global_manager():
+    global global_manager, ongoing_matches
+    try:
+        global_manager
+    except NameError:
+        from multiprocessing import Manager
+        global_manager = Manager()
+        ongoing_matches = global_manager.dict()
+    return global_manager, ongoing_matches
 
 ############################
 # Utility functions & Persistence
@@ -79,24 +90,28 @@ def save_matches(matches: Dict[str, Any]) -> None:
 # Game Engine Runner Function
 ############################
 
-def run_small_match(map_file: str, players: List[str]) -> Dict[str, Any]:
+def run_small_match(map_file: str, players: List[str], match_id: str, mini_index: int, shared_dict: Dict[str, Any]) -> Dict[str, Any]:
     game = Instance(players, map_file, game_round=1000, debug=False)
-    # Create a .rpl file
+    
     replay_filename = f"replay_{players[0]}_{players[1]}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.rpl"
     replay_fullpath = REPLAYS_FOLDER / replay_filename
     game.replay_path = str(replay_fullpath)
-    winner, reason, _ = game.run()
-  
-    # Compress the .rpl file into a zip archive
+
+    game.new_replay()
+    for i in range(1000):
+        game.next_round()
+        shared_dict[match_id][mini_index] = i + 1
+        if game.game_end_flag:
+            break
+    game.counting_result()
+    shared_dict[match_id][mini_index] = 1000
+
     zip_filename = replay_filename.rsplit('.', 1)[0] + ".zip"
     zip_fullpath = REPLAYS_FOLDER / zip_filename
     with zipfile.ZipFile(zip_fullpath, 'w', zipfile.ZIP_DEFLATED) as zipf:
         zipf.write(replay_fullpath, arcname=replay_filename)
-    # Optionally remove the original .rpl file.
     replay_fullpath.unlink(missing_ok=True)
-  
-    # Return the zip filename instead.
-    return {"winner": winner, "replay": zip_filename}
+    return {"winner": game.replay["winner"], "replay": zip_filename}
 
 ############################
 # FastAPI Application Setup
@@ -277,56 +292,81 @@ async def match_history(request: Request, user: dict = Depends(require_user)):
     matches = get_matches()
     match_history = []
     for match_id in user.get("match_history", []):
-        m = matches[match_id].copy()
-        m["opponent"] = m["player_B"] if m["player_A"] == user["username"] else m["player_A"]
-        m["timestamp"] = str(datetime.fromisoformat(m["timestamp"]))[:-7]
-        match_history.append(m)
+        if match_id in matches:
+            m = matches[match_id].copy()
+            m["opponent"] = m["player_B"] if m["player_A"] == user["username"] else m["player_A"]
+            m["timestamp"] = str(datetime.fromisoformat(m["timestamp"]))[:-7]
+            match_history.append(m)
 
     return templates.TemplateResponse("match_history.html", {"request": request, "match_history": match_history, "user": user})
 
 def process_match(username: str, opponent: str, chosen_maps: List[Path], players: List[str]):
     accounts = get_accounts()
-    results = []
-    with concurrent.futures.ProcessPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(run_small_match, str(map_path), players) for map_path in chosen_maps]
-        for future in concurrent.futures.as_completed(futures):
-            results.append(future.result())
-
-    win_count = {players[0]: 0, players[1]: 0}
-    replay_links = []
-    print(results)
-    for res in results:
-        if res["winner"] != "None":
-            win_count[res["winner"]] += 1
-        replay_links.append(res["replay"])
-
-    diff = (win_count[players[0]] - win_count[players[1]]) * 20
-    if diff != 0:
-        transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
-        accounts[username]["points"] += transfer if diff > 0 else -transfer
-        accounts[opponent]["points"] += -transfer if diff > 0 else transfer
-
-    # 生成唯一比赛ID
     match_id = str(uuid.uuid4())
+    # 在发起后台任务时，先将比赛记录写入，状态为“进行中”，同时初始化进度信息
     global_record = {
         "id": match_id,
         "timestamp": datetime.now().isoformat(),
         "player_A": username,
         "player_B": opponent,
-        "score": f"{win_count[players[0]]}:{win_count[players[1]]}",
-        "replays": replay_links
+        "score": "0:0",
+        "replays": [],
+        "status": "ongoing"
     }
-
-    # 将全局比赛记录存储在 matches 字典中
     matches = get_matches()
     matches[match_id] = global_record
     save_matches(matches)
-
-    # 仅保存比赛ID到各自账号的 match_history 数组
-    match_record_id = match_id
-    accounts[username]["match_history"].append(match_record_id)
-    accounts[opponent]["match_history"].append(match_record_id)
+    
+    # 保存本场比赛的 match_id 到双方历史记录中。
+    accounts[username]["match_history"].append(match_id)
+    accounts[opponent]["match_history"].append(match_id)
     save_accounts(accounts)
+
+    global_manager, ongoing_matches = get_global_manager()
+    ongoing_matches[match_id] = global_manager.list([0, 0, 0])
+    
+    results = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=3) as executor:
+        futures = [executor.submit(run_small_match, str(map_path), players, match_id, i, ongoing_matches)
+                   for i, map_path in enumerate(chosen_maps)]
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+
+    # 根据各局结果统计分数
+    win_count = {players[0]: 0, players[1]: 0}
+    replay_links = []
+    for res in results:
+        if res["winner"] != "None":
+            win_count[res["winner"]] += 1
+        replay_links.append(res["replay"])
+    
+    # 积分计算（与原代码一致）
+    diff = (win_count[players[0]] - win_count[players[1]]) * 20
+    if diff != 0:
+        transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
+        accounts[username]["points"] += transfer if diff > 0 else -transfer
+        accounts[opponent]["points"] += -transfer if diff > 0 else transfer
+    
+    # 更新比赛记录：比分、回放链接及状态置为“完成”
+    global_record["score"] = f"{win_count[players[0]]}:{win_count[players[1]]}"
+    global_record["replays"] = replay_links
+    global_record["status"] = "finished"
+    matches[match_id] = global_record
+    save_matches(matches)
+
+@app.get("/match_progress/{match_id}")
+async def match_progress(match_id: str, user: dict = Depends(require_user)):
+    global_manager, ongoing_matches = get_global_manager()
+    matches = get_matches()
+    if match_id not in matches:
+        raise HTTPException(status_code=404, detail="比赛不存在。")
+    
+    progress_list = ongoing_matches.get(match_id)
+    if progress_list is None:
+        raise HTTPException(status_code=404, detail="比赛未开始。")
+
+    return {"match_id": match_id, "progress": list(progress_list), "status": matches[match_id].get("status", "ongoing")}
+
 
 @app.post("/start_match")
 async def start_match(request: Request,
