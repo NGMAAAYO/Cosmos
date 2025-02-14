@@ -525,7 +525,7 @@ async def visualizer_res(filename: str):
         headers["Content-Encoding"] = "gzip"
     return Response(content, headers=headers)
 
-@app.get("/static/favicon.ico")
+@app.get("/favicon.ico")
 async def favicon():
     return FileResponse("static/favicon.ico")
 
