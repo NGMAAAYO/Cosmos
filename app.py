@@ -298,10 +298,66 @@ async def match_history(request: Request, user: dict = Depends(require_user)):
         if match_id in matches:
             m = matches[match_id].copy()
             m["opponent"] = m["player_B"] if m["player_A"] == user["username"] else m["player_A"]
+            if m["player_A"] != user["username"]:
+                m["score"] = ":".join(reversed(m["score"].split(":")))
             match_history.append(m)
 
     match_history = sorted(match_history, key=lambda m: m["timestamp"], reverse=True)
     return templates.TemplateResponse("match_history.html", {"request": request, "match_history": match_history, "user": user})
+
+def update_elo(r_a: int, r_b: int, map_results: tuple, k: int = 32, min_score: int = 100) -> tuple:
+    """
+    基于每张地图独立计算的ELO更新
+    :param r_a: 玩家A当前分数
+    :param r_b: 玩家B当前分数
+    :param map_results: 三张地图的结果元组，每个元素为：
+                       0表示A胜，1表示B胜，-1表示平局
+                       例如 (0, 0, 1) 表示A赢前两张，B赢第三张
+    :param k: 基础调整系数
+    :return: 调整后的分数元组 (new_r_a, new_r_b)
+    """
+    delta_a_total = 0
+    delta_b_total = 0
+    current_r_a = r_a
+    current_r_b = r_b
+
+    # 逐张地图计算变动
+    for result in map_results:
+        # 计算单局期望值
+        e_a = 1 / (1 + 10 ** ((current_r_b - current_r_a) / 400))
+        e_b = 1 - e_a
+
+        # 根据单局结果计算变动
+        if result == 0:
+            delta_a = k * (1 - e_a)
+            delta_b = k * (0 - e_b)
+        elif result == 1:
+            delta_a = k * (0 - e_a)
+            delta_b = k * (1 - e_b)
+        else:  # 平局
+            delta_a = k * (0.5 - e_a)
+            delta_b = k * (0.5 - e_b)
+
+        # 累加变动并实时更新临时分（影响后续地图计算）
+        delta_a_total += delta_a
+        delta_b_total += delta_b
+        current_r_a += delta_a
+        current_r_b += delta_b
+
+    # 最终四舍五入并应用最低分保护
+    new_r_a = max(round(r_a + delta_a_total), min_score)
+    new_r_b = max(round(r_b + delta_b_total), min_score)
+
+    return (new_r_a, new_r_b)
+
+def update_elo_advanced(r_a, r_b, result, games_a=0, games_b=0):
+    # 动态计算K值
+    k_a = 40 if games_a < 10 else (24 if r_a > 2000 else 32)
+    k_b = 40 if games_b < 10 else (24 if r_b > 2000 else 32)
+
+    # 使用平均K值或分别计算
+    k = (k_a + k_b) // 2
+    return update_elo(r_a, r_b, result, k)
 
 def process_match(username: str, opponent: str, chosen_maps: List[Path], players: List[str]):
     accounts = get_accounts()
@@ -342,18 +398,24 @@ def process_match(username: str, opponent: str, chosen_maps: List[Path], players
         # 根据各局结果统计分数
         win_count = {players[0]: 0, players[1]: 0}
         replay_links = []
+        result = []
         for res in results:
-            if res["winner"] != "None":
+            if res["winner"] == username:
                 win_count[res["winner"]] += 1
+                result.append(0)
+            elif res["winner"] == opponent:
+                win_count[res["winner"]] += 1
+                result.append(1)
+            else:
+                result.append(-1)
             replay_links.append(res["replay"])
 
-        diff = (win_count[players[0]] - win_count[players[1]]) * 20
-        if diff != 0:
-            accounts = get_accounts()
-            transfer = min(abs(diff), accounts[(opponent if diff > 0 else username)]["points"])
-            accounts[username]["points"] += transfer if diff > 0 else -transfer
-            accounts[opponent]["points"] += -transfer if diff > 0 else transfer
-            save_accounts(accounts)
+        # 更新分数
+        accounts = get_accounts()
+        player_a = accounts[username]
+        player_b = accounts[opponent]
+        player_a["points"], player_b["points"] = update_elo(player_a["points"], player_b["points"], result)
+        save_accounts(accounts)
 
         global_record["score"] = f"{win_count[players[0]]}:{win_count[players[1]]}"
         global_record["replays"] = replay_links
