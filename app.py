@@ -481,7 +481,9 @@ async def get_replay(replay_filename: str, user: dict = Depends(require_user)):
     replay_path = REPLAYS_FOLDER / replay_filename
     if not replay_path.exists():
         raise HTTPException(status_code=404, detail="未找到回放。")
-    return FileResponse(path=str(replay_path), filename=replay_filename)
+    response = FileResponse(path=str(replay_path), filename=replay_filename)
+    response.headers["Content-Length"] = str(os.path.getsize(replay_path))
+    return response
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
