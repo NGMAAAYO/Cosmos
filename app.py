@@ -1,4 +1,5 @@
 import os
+import io
 import re
 import sys
 import json
@@ -14,7 +15,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import BackgroundTasks, Response
+from fastapi import BackgroundTasks, Response, StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
@@ -533,6 +534,4 @@ async def favicon():
 
 if __name__ == '__main__':
     import uvicorn
-import io
-from fastapi.responses import StreamingResponse
     uvicorn.run("app:app", host="127.0.0.1", port=4536, reload=True)
