@@ -32,7 +32,8 @@ Cosmos
 		"example1",  // 'src/'目录下必须有相同队名的队伍代码文件夹
 		"example2"
 	],
-	"debug": true  // 开启debug模式。在debug模式下，队伍代码抛出的错误将会中断游戏进程，并且随机种子将会固定。保存的回放文件名称将固定为'replays-debug.rpl'
+	"debug": true  // 开启debug模式。在debug模式下，队伍代码抛出的错误将会中断
+	               // 游戏进程，并且随机种子将会固定。保存的回放文件名称将固定为'replays-debug.rpl'
 }
 ```
 
