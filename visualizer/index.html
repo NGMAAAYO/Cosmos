@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Cosmos回放工具</title>
+    <style>
+        /* Visual style for the drag-and-drop area */
+        #drop-zone {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            display: none;
+            background: rgba(0, 128, 255, 0.2);
+            border: 4px dashed #0080ff;
+            pointer-events: none;
+        }
+        #unity-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background: #231F20;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            text-align: center;
+            border: 0;
+        }
+    </style>
+    <!-- Include JSZip from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+</head>
+<body style="text-align: center; padding: 0; border: 0; margin: 0;">
+    <div id="drop-zone"></div>
+    <canvas id="unity-canvas" width="960" height="600" style="width: 960px; height: 600px; background: #231F20"></canvas>
+    
+    <!-- Load the Unity loader script (the actual filename is replaced by your build process) -->
+    <script src="visualizer/res/WebGL.loader.js"></script>
+    
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        let unityInstance = null;
+        const unityCanvas = document.getElementById('unity-canvas');
+
+        // Resize canvas to always fill the window.
+        function resizeCanvas() {
+            unityCanvas.style.width = window.innerWidth + 'px';
+            unityCanvas.style.height = window.innerHeight + 'px';
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Prevent default behavior during dragover
+        document.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (unityInstance) {
+                dropZone.style.display = 'block';
+            }
+        });
+
+        // Hide the drop zone when drag leaves
+        document.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget === null) {
+                dropZone.style.display = 'none';
+            }
+        });
+
+        // Handle file drop from drag and drop area
+        document.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.style.display = 'none';
+
+            if (!unityInstance || !e.dataTransfer.files.length) return;
+
+            const file = e.dataTransfer.files[0];
+            await handleFile(file);
+        });
+
+        // Reads the file as text and sends its content to Unity
+        async function handleFile(file) {
+            const reader = new FileReader();
+            reader.readAsText(file, "UTF-8");
+            reader.onload = () => {
+                const fileData = reader.result;
+                unityInstance.SendMessage("NetFile", "OnFileRead", fileData);
+            };
+        }
+
+        // Create the Unity instance and after it is available, check for the zipUrl GET parameter.
+        createUnityInstance(unityCanvas, {
+            dataUrl: "visualizer/res/WebGL.data.gz",
+            frameworkUrl: "visualizer/res/WebGL.framework.js.gz",
+            codeUrl: "visualizer/res/WebGL.wasm.gz",
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "NGMAAAYO",
+            productName: "Cosmos",
+            productVersion: "1.3.0",
+        }).then(instance => {
+            unityInstance = instance;
+            
+            // Ensure clicks do not pass through the drop zone
+            document.addEventListener('click', (e) => {
+                if (e.target === dropZone) {
+                    e.stopPropagation();
+                }
+            }, true);
+
+            // Check URL for zipUrl GET parameter.
+            const params = new URLSearchParams(window.location.search);
+            const zipUrl = params.get('replay');
+            if (zipUrl) {
+                fetchAndProcessZip(zipUrl);
+            }
+        });
+
+        // Function to fetch, unzip, and process the .rpl file
+        async function fetchAndProcessZip(zipFileUrl) {
+            try {
+                const response = await fetch(zipFileUrl);
+                if (!response.ok) throw new Error("Network response was not OK");
+                const arrayBuffer = await response.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                let rplFileName = null;
+
+                // Find a file ending with .rpl (case-insensitive)
+                zip.forEach((relativePath, zipEntry) => {
+                    if (relativePath.toLowerCase().endsWith('.rpl') && !rplFileName) {
+                        rplFileName = relativePath;
+                    }
+                });
+
+                if (!rplFileName) {
+                    console.error("No .rpl file found in the zip archive.");
+                    return;
+                }
+
+                // Read the contents of the .rpl file as text.
+                const rplContent = await zip.file(rplFileName).async("text");
+                // Send the content to Unity.
+                unityInstance.SendMessage("NetFile", "OnFileRead", rplContent);
+            } catch (error) {
+                console.error("Error processing zip file:", error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -37,9 +37,30 @@
                       style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                   </div>
                 {% elif record.status == "finished" %}
-                  {% for replay in record.replays %}
-                    <a class="btn btn-sm btn-info mb-1" href="/replay/{{ replay }}" target="_blank">第{{ loop.index }}局</a>
-                  {% endfor %}
+                  <div class="btn-group">
+                  <button type="button" class="btn btn-sm btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    下载
+                  </button>
+                  <ul class="dropdown-menu">
+                    {% for replay in record.replays %}
+                    <li>
+                      <a class="dropdown-item" href="/replay/{{ replay }}">第{{ loop.index }}局</a>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  </div>
+                  <div class="btn-group ms-2">
+                  <button type="button" class="btn btn-sm btn-info dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    观看
+                  </button>
+                  <ul class="dropdown-menu">
+                    {% for replay in record.replays %}
+                    <li>
+                      <a class="dropdown-item" href="visualizer?replay=/replay/{{ replay }}" target="_blank">第{{ loop.index }}局</a>
+                    </li>
+                    {% endfor %}
+                  </ul>
+                  </div>
                 {% else %} 
                   <span>队列中</span>
                 {% endif %}

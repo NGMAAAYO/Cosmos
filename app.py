@@ -10,10 +10,8 @@ import zipfile
 import threading
 import importlib
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from hashlib import md5
 from pathlib import Path
-from multiprocessing import Manager
 from typing import Optional, List, Dict, Any
 
 from fastapi import BackgroundTasks
@@ -128,7 +126,6 @@ def run_small_match(map_file: str, players: List[str], match_id: str, mini_index
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="!secret_key_change_this!")
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 ############################
@@ -501,6 +498,17 @@ async def generic_exception_handler(request: Request, exc: Exception):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     context = {"request": request, "error": exc.errors()}
     return templates.TemplateResponse("error.html", context, status_code=400)
+
+@app.get("/visualizer")
+async def visualizer(request: Request):
+    return FileResponse("visualizer/index.html")
+
+@app.get("/visualizer/res/{filename}")
+async def visualizer_res(filename: str):
+    response = FileResponse(f"visualizer/Build/{filename}")
+    if filename.endswith(".gz"):
+        response.headers["Content-Encoding"] = "gzip"
+    return response
 
 if __name__ == '__main__':
     import uvicorn
