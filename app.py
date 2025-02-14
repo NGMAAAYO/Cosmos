@@ -519,11 +519,14 @@ load_visualizer_files()
 @app.get("/visualizer/res/{filename}")
 async def visualizer_res(filename: str):
     if filename not in visualizer_cache:
-        raise HTTPException(status_code=404, detail="File not found.")
+        file_path = Path("visualizer/Build") / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found.")
+        visualizer_cache[filename] = file_path.read_bytes()
 
     content = visualizer_cache[filename]
     stream = io.BytesIO(content)
-    headers = {}
+    headers = {"Cache-Control": "public, max-age=86400"}
     if filename.endswith(".gz"):
         headers["Content-Encoding"] = "gzip"
     return StreamingResponse(stream, headers=headers, media_type="application/octet-stream")
