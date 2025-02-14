@@ -480,9 +480,13 @@ async def get_replay(replay_filename: str, _user: dict = Depends(require_user)):
     replay_path = REPLAYS_FOLDER / replay_filename
     if not replay_path.exists():
         raise HTTPException(status_code=404, detail="未找到回放。")
-    response = FileResponse(path=str(replay_path), filename=replay_filename)
-    response.headers["Content-Length"] = str(os.path.getsize(replay_path))
-    return response
+    file_size = os.path.getsize(replay_path)
+    headers = {
+        "Content-Length": str(file_size),
+        "Cache-Control": "public, max-age=31536000, immutable"
+    }
+    stream = open(replay_path, "rb")
+    return StreamingResponse(stream, media_type="application/octet-stream", headers=headers)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
