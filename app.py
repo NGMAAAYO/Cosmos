@@ -519,11 +519,13 @@ load_visualizer_files()
 async def visualizer_res(filename: str):
     if filename not in visualizer_cache:
         raise HTTPException(status_code=404, detail="File not found.")
+
     content = visualizer_cache[filename]
-    headers = {"Content-Length": str(len(content))}
+    stream = io.BytesIO(content)
+    headers = {}
     if filename.endswith(".gz"):
         headers["Content-Encoding"] = "gzip"
-    return Response(content, headers=headers)
+    return StreamingResponse(stream, headers=headers, media_type="application/octet-stream")
 
 @app.get("/favicon.ico")
 async def favicon():
@@ -531,4 +533,6 @@ async def favicon():
 
 if __name__ == '__main__':
     import uvicorn
+import io
+from fastapi.responses import StreamingResponse
     uvicorn.run("app:app", host="127.0.0.1", port=4536, reload=True)
