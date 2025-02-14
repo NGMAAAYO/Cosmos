@@ -1,9 +1,0 @@
-{
-	"rounds": 1000,
-	"map": "maptestsmall",
-	"players": [
-		"example",
-		"example"
-	],
-	"debug": true
-}
