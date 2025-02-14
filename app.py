@@ -526,7 +526,7 @@ async def visualizer_res(filename: str):
     headers = {}
     if filename.endswith(".gz"):
         headers["Content-Encoding"] = "gzip"
-    return StreamingResponse(stream, headers=headers, media_type="application/octet-stream", chunk_size=8192)
+    return StreamingResponse(stream, headers=headers, media_type="application/octet-stream")
 
 @app.get("/favicon.ico")
 async def favicon():
