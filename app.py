@@ -505,7 +505,10 @@ async def visualizer(request: Request):
 
 @app.get("/visualizer/res/{filename}")
 async def visualizer_res(filename: str):
-    response = FileResponse(f"visualizer/Build/{filename}")
+    file_path = f"visualizer/Build/{filename}"
+    file_size = os.path.getsize(file_path)
+    response = FileResponse(file_path)
+    response.headers["Content-Length"] = str(file_size)
     if filename.endswith(".gz"):
         response.headers["Content-Encoding"] = "gzip"
     return response
