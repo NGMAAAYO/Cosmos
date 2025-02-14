@@ -1,26 +1,51 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh">
   <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page.title }} | 一些随笔</title>
+    <title>{{ page.title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <!-- Bootstrap CSS -->
     <link rel="shortcut icon" href="/favicon.ico?" />
     <link rel="bookmark" href="/favicon.ico?" type="image/x-icon"　/>
     <link rel="stylesheet" href="/tutorial/assets/css/style.css?v=202401281506">
     <link rel="stylesheet" href="/tutorial/assets/css/lxgw.css?v=202401281506" />
     <style class="anchorjs"></style>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   </head>
   <body>
-    <div class="container-lg px-3 my-5 markdown-body">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="/">Cosmos</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+          aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="navbar-nav me-auto">
+            <li class="nav-item dropdown ms-auto d-none d-md-block">
+              <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              开发文档
+              </a>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" href="/documents/Controller.html">Controller</a></li>
+                <li><a class="dropdown-item" href="/documents/Direction.html">Direction</a></li>
+                <li><a class="dropdown-item" href="/documents/MapLocation.html">MapLocation</a></li>
+                <li><a class="dropdown-item" href="/documents/EntityType.html">EntityType</a></li>
+                <li><a class="dropdown-item" href="/documents/EntityInfo.html">EntityInfo</a></li>
+                <li><a class="dropdown-item" href="/documents/Team.html">Team</a></li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+
+    <div class="container container-lg px-3 my-5 markdown-body">
       {{ content }}
-      <hr></hr>
-      <footer>
-        <p style="text-align:center">
-          <a href="./">一些随笔</a> | &copy; 小孩子不懂事写着玩的
-        </p>
-      </footer>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/anchor-js/4.1.0/anchor.min.js" integrity="sha256-lZaRhKri35AyJSypXXs4o6OPFTbTmUoltBbDCbdzegg=" crossorigin="anonymous"></script>
     <script>anchors.add();</script>
   </body>
