@@ -11,6 +11,9 @@
         <p>还没有上传任何代码</p>
       {% endif %}
 
+      <p>上传的代码应该是包含一个文件夹的zip压缩文件，文件夹内应该有合法的main.py文件。</p>
+      <p>请确保代码文件大小不超过10MB。</p>
+
       <form id="uploadForm" method="post" action="/upload_code" enctype="multipart/form-data">
         <!-- Using a hidden input to hint a max file size of 10 MB (in bytes) -->
         <input type="hidden" name="MAX_FILE_SIZE" value="10485760">

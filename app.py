@@ -537,7 +537,16 @@ async def visualizer_res(filename: str):
 
 @app.get("/favicon.ico")
 async def favicon():
-    return FileResponse("static/favicon.ico")
+    file_path = "static/favicon.ico"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Favicon not found.")
+    file_size = os.path.getsize(file_path)
+    headers = {
+        "Content-Length": str(file_size),
+        "Cache-Control": "public, max-age=31536000, immutable"
+    }
+    stream = open(file_path, "rb")
+    return StreamingResponse(stream, headers=headers, media_type="image/x-icon")
 
 if __name__ == '__main__':
     import uvicorn
