@@ -96,7 +96,7 @@ def save_matches(matches: Dict[str, Any]) -> None:
 def run_small_match(map_file: str, players: List[str], match_id: str, mini_index: int, shared_dict: Dict[str, Any]) -> Dict[str, Any]:
     game = Instance(players, map_file, game_round=1000, debug=False)
 
-    replay_filename = f"replay_{players[0]}_{players[1]}_{int(datetime.now().timestamp())}.rpl"
+    replay_filename = f"replay_{players[0]}_{players[1]}_{match_id}_{mini_index}.rpl"
     replay_fullpath = REPLAYS_FOLDER / replay_filename
     game.replay_path = str(replay_fullpath)
 
@@ -109,11 +109,16 @@ def run_small_match(map_file: str, players: List[str], match_id: str, mini_index
     game.counting_result()
     shared_dict[match_id][mini_index] = 1000
 
-    zip_filename = replay_filename.rsplit('.', 1)[0] + ".zip"
-    zip_fullpath = REPLAYS_FOLDER / zip_filename
-    with zipfile.ZipFile(zip_fullpath, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        zipf.write(replay_fullpath, arcname=replay_filename)
-    replay_fullpath.unlink(missing_ok=True)
+    try:
+        zip_filename = replay_filename.rsplit('.', 1)[0] + ".zip"
+        zip_fullpath = REPLAYS_FOLDER / zip_filename
+        with zipfile.ZipFile(zip_fullpath, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(replay_fullpath, arcname=replay_filename)
+        replay_fullpath.unlink(missing_ok=True)
+    except Exception as e:
+        print(f"Failed to create zip file: {e}")
+        zip_filename = replay_filename
+
     return {"winner": game.replay["winner"], "replay": zip_filename}
 
 ############################
@@ -430,6 +435,12 @@ async def match_progress(match_id: str, user: dict = Depends(require_user)):
     matches = get_matches()
     if match_id not in matches:
         raise HTTPException(status_code=404, detail="比赛不存在。")
+    
+    if matches[match_id]["status"] == "queued":
+        return {"match_id": match_id, "progress": [0, 0, 0], "status": "queued"}
+    
+    if user["username"] not in [matches[match_id]["player_A"], matches[match_id]["player_B"]]:
+        raise HTTPException(status_code=403, detail="您不是比赛的参与者。")
     
     progress_list = ongoing_matches.get(match_id)
     if progress_list is None:
