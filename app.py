@@ -475,7 +475,7 @@ async def start_match(request: Request,
     return templates.TemplateResponse("dashboard.html", {"request": request, "message": "比赛已开始！比赛结果将在比赛结束后更新。", "user": user})
 
 @app.get("/replay/{replay_filename}")
-async def get_replay(replay_filename: str, user: dict = Depends(require_user)):
+async def get_replay(replay_filename: str, _user: dict = Depends(require_user)):
     replay_path = REPLAYS_FOLDER / replay_filename
     if not replay_path.exists():
         raise HTTPException(status_code=404, detail="未找到回放。")
