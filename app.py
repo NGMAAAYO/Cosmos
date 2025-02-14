@@ -14,7 +14,7 @@ from hashlib import md5
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException, Depends, status
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
@@ -505,15 +505,27 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def visualizer(request: Request):
     return FileResponse("visualizer/index.html")
 
+visualizer_cache = {}
+
+def load_visualizer_files():
+    build_folder = Path("visualizer/Build")
+    if not build_folder.exists():
+        raise RuntimeError("visualizer/Build folder does not exist.")
+    for file in build_folder.iterdir():
+        if file.is_file():
+            visualizer_cache[file.name] = file.read_bytes()
+
+load_visualizer_files()
+
 @app.get("/visualizer/res/{filename}")
 async def visualizer_res(filename: str):
-    file_path = f"visualizer/Build/{filename}"
-    file_size = os.path.getsize(file_path)
-    response = FileResponse(file_path)
-    response.headers["Content-Length"] = str(file_size)
+    if filename not in visualizer_cache:
+        raise HTTPException(status_code=404, detail="File not found.")
+    content = visualizer_cache[filename]
+    headers = {"Content-Length": str(len(content))}
     if filename.endswith(".gz"):
-        response.headers["Content-Encoding"] = "gzip"
-    return response
+        headers["Content-Encoding"] = "gzip"
+    return Response(content, headers=headers)
 
 if __name__ == '__main__':
     import uvicorn
