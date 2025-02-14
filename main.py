@@ -1,5 +1,9 @@
+import os
+import sys
 import json
 import random
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from core.game import Instance
 
