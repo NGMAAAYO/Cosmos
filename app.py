@@ -445,7 +445,6 @@ async def match_progress(match_id: str, user: dict = Depends(require_user)):
 
     return {"match_id": match_id, "progress": list(progress_list), "status": matches[match_id].get("status", "ongoing")}
 
-
 @app.post("/start_match")
 async def start_match(request: Request,
                       background_tasks: BackgroundTasks,
@@ -474,7 +473,6 @@ async def start_match(request: Request,
 
     # 立即返回响应
     return templates.TemplateResponse("dashboard.html", {"request": request, "message": "比赛已开始！比赛结果将在比赛结束后更新。", "user": user})
-
 
 @app.get("/replay/{replay_filename}")
 async def get_replay(replay_filename: str, user: dict = Depends(require_user)):
@@ -526,6 +524,10 @@ async def visualizer_res(filename: str):
     if filename.endswith(".gz"):
         headers["Content-Encoding"] = "gzip"
     return Response(content, headers=headers)
+
+@app.get("favicon.ico")
+async def favicon():
+    return FileResponse("static/favicon.ico")
 
 if __name__ == '__main__':
     import uvicorn
