@@ -9,6 +9,12 @@
 
 -----
 
+#### 配置游戏
+
+从[Releases](https://github.com/NGMAAAYO/Cosmos/releases/latest/)页面下载最新的游戏压缩包，或者[点击这里](https://github.com/NGMAAAYO/Cosmos/releases/download/v1.0.4/Cosmos.zip)下载最新版本（可能有延迟）。
+
+解压后的文件夹即是游戏的根目录，你可以使用这个项目进行队伍代码的编写、调试，以及比赛的运行。文件夹内自带一个Windows下的Python环境，你可以直接运行`run.cmd`来开始游戏进程。
+
 #### 配置比赛
 
 为了运行一场比赛，你需要至少一个队伍代码。队伍代码应当是一个名为队名的文件夹，其中包含一个符合条件的、名为`main.py`的文件。将队伍代码放在`src\`下。
@@ -22,6 +28,9 @@ Cosmos
         |-- main.py
         |-- ...
 ```
+
+#### 运行比赛
+
 在准备好队伍代码后，修改`config.json`中的比赛参数。
 
 ```
