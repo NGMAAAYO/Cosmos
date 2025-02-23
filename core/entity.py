@@ -57,11 +57,13 @@ class Controller:
 	def get_cooldown_turns(self):
 		return int(self.__cooldown)
 
-	# 计算过载系数
-	def get_overdrive_factor(self, team):
+	# 计算n回合后的过载倍率
+	def get_overdrive_factor(self, team, round=0):
+		if round < 0:
+			raise Exception("轮数必须为非负数。")
 		index = 0
 		for i in self.__overdrive_factor:
-			if team == i[0] and i[2] > self.get_round_num():  # 如果是同一队并且过期轮数大于当前轮数，则累加
+			if team == i[0] and i[2] > self.get_round_num() + round:  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
 		return (1.0 + 0.001) ** index
 
