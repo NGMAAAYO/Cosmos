@@ -20,9 +20,9 @@ from core.entity import Controller
 
 > 返回还有多少回合自身实体才能够行动
 
-#### def get_overdrive_factor(self, team: [Team](Team.md)) -> float:
+#### def get_overdrive_factor(self, team: [Team](Team.md), round: int = 0) -> float:
 
-> 返回指定队伍的过载增益系数
+> 返回指定队伍在 `round` 回合后的过载增益系数。`round` 必须大于等于 0
 
 #### def get_defence(self) -> int:
 
