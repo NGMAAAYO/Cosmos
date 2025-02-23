@@ -148,8 +148,8 @@ class Instance:
 				for rid in self.available_entities_ids:  # 选出所有在半径内的实体
 					if self.entities[str(rid)].info.location.distance_to(local_info.location) <= action[1]:
 						targets.append(rid)
-				if len(targets) != 0 and local_info.energy > 10:
-					base_energy = (local_info.energy - 10) / len(targets)  # 均分能量
+				if len(targets) != 0 and local_info.defence > 10:  # 注意，过载应该是以防护值为基础值
+					base_energy = (local_info.defence - 10) / len(targets)  # 均分能量
 					odfactor = self.get_overdrive_factor(local_info.team)  # 获得当前增益系数
 					for rid in targets:  # 依次处理
 						entity_info = self.entities[str(rid)].info
