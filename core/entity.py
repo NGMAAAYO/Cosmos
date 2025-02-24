@@ -6,7 +6,7 @@ from core.api import *
 
 # 实体控制类。记录要产生的行为，并通过get_action函数回调。
 class Controller:
-	def __init__(self, info, sensed_entities, detected_entities, teams_info, charge_point, gmap, cooldown, round_count, overdrive_factor):
+	def __init__(self, info, sensed_entities, detected_entities, teams_info, charge_point, gmap, cooldown, round_count, overdrive_factor, entity_count):
 		self.__info = info  # 传入的信息。应当在控制后更新到全局
 		self.__cooldown = cooldown  # 传入的冷却信息。应当在控制后更新到全局
 		self.__sensed_entities = sensed_entities  # 感知到的实体
@@ -16,6 +16,7 @@ class Controller:
 		self.__map = gmap  # 地图信息
 		self.__round_count = round_count  # 当前的轮数
 		self.__overdrive_factor = overdrive_factor  # 全局的过载倍率，每一项为[队伍tag，能量，过期轮数]
+		self.__entity_count = entity_count
 
 		# 以下为回调所调用的数据
 		self.__charged = 0  # 用以充能的点数
@@ -94,6 +95,9 @@ class Controller:
 	# 本队已有的充能点
 	def get_charge_point(self):
 		return self.__charge_point
+	
+	def get_entity_count(self):
+		return self.__entity_count
 
 	# 指定方向的相邻位置
 	def adjacent_location(self, d):
@@ -337,7 +341,10 @@ class Entity:
 	def get_controller(self, all_entities, teams_info, charge_result, gmap, round_count, overdrive_factor):
 		sensed_entities = []
 		detected_entities = []
+		entity_cnt = 0
 		for entity in all_entities:  # 获得实体能感知和探测到的所有实体
+			if entity.team == self.info.team:
+				entity_cnt += 1
 			d = entity.location.distance_to(self.info.location)
 			if d <= self.info.type.detection_radius:
 				detected_entities.append(entity.location)
@@ -349,4 +356,4 @@ class Entity:
 					else:
 						sensed_entities.append(entity)
 
-		return Controller(self.info, sensed_entities, detected_entities, teams_info, charge_result[int(self.info.team.tag)], gmap, self.cooldown, round_count, overdrive_factor)
+		return Controller(self.info, sensed_entities, detected_entities, teams_info, charge_result[int(self.info.team.tag)], gmap, self.cooldown, round_count, overdrive_factor, entity_cnt)
