@@ -56,6 +56,10 @@ from core.entity import Controller
 
 > 返回本队最终兵器已有的充能点数
 
+#### def get_entity_count(self) -> int:
+
+> 返回本队总实体数量
+
 #### def adjacent_location(self, dir: [Direction](Direction.md)) -> [MapLocation](MapLocation.md):
 
 > 返回自身目标方向相邻的位置
