@@ -149,7 +149,7 @@ class Instance:
 						entity_info = self.entities[str(rid)].info
 						if entity_info.team == local_info.team:  # 友军的场合
 							if entity_info.type == "planet":
-								self.entities[str(rid)].info.energy += int(base_energy)
+								self.entities[str(rid)].info.energy += int(base_energy * odfactor)
 							else:
 								self.entities[str(rid)].info.defence += int(base_energy * odfactor)
 								self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
@@ -168,8 +168,10 @@ class Instance:
 										self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
 										self.entities[str(rid)].info.team = local_info.team  # 转换队伍
 										self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
+									elif self.entities[str(rid)].info.defence == 0:
+										self.remove_entity(entity_info.ID)
 								else:
-									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
+									if self.entities[str(rid)].info.defence <= 0:  # 如果防护值小于零
 										self.remove_entity(entity_info.ID)  # 删除实体
 
 			elif action[0] == "analyze":  # 分析，参数为 target
