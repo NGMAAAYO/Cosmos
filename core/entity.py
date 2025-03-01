@@ -219,7 +219,7 @@ class Controller:
 	# 是否可以改为指定广播值
 	@staticmethod
 	def can_set_radio(radio):
-		return 0 <= radio <= 99999999
+		return 0 <= radio <= 2 ** 28 - 1
 
 	# 尝试充能
 	def charge(self, energy):
@@ -347,13 +347,11 @@ class Entity:
 				entity_cnt += 1
 			d = entity.location.distance_to(self.info.location)
 			if d <= self.info.type.detection_radius:
-				detected_entities.append(entity.location)
+				detected_entities.append(copy.deepcopy(entity.location))
 				if d <= self.info.type.sensor_radius:
+					new_entity = copy.deepcopy(entity)
 					if self.info.type in ["destroyer", "miner"] and entity.type == "miner" and entity.ID != self.info.ID:  # 非真实视野
-						new_entity = copy.deepcopy(entity)
 						new_entity.type = EntityType("destroyer")
-						sensed_entities.append(new_entity)
-					else:
-						sensed_entities.append(entity)
+					sensed_entities.append(new_entity)
 
 		return Controller(self.info, sensed_entities, detected_entities, teams_info, charge_result[int(self.info.team.tag)], gmap, self.cooldown, round_count, overdrive_factor, entity_cnt)
