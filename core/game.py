@@ -281,22 +281,43 @@ class Instance:
 			print("原因：平局")
 
 		team_entity_count = {team: [0, 0, 0, 0] for team in self.team_names}
+		team_energy_count = {team: [0, 0, 0, 0] for team in self.team_names}
 		for eid in self.available_entities_ids:
 			team_tag = int(self.entities[str(eid)].info.team.tag)
 			team_name = self.team_names[team_tag]
 			entity_type = self.entities[str(eid)].info.type.name
 			if entity_type == "planet":
 				team_entity_count[team_name][0] += 1
+				team_energy_count[team_name][0] += self.entities[str(eid)].info.energy
 			elif entity_type == "destroyer":
 				team_entity_count[team_name][1] += 1
+				team_energy_count[team_name][1] += self.entities[str(eid)].info.energy
 			elif entity_type == "miner":
 				team_entity_count[team_name][2] += 1
+				team_energy_count[team_name][2] += self.entities[str(eid)].info.energy
 			elif entity_type == "scout":
 				team_entity_count[team_name][3] += 1
+				team_energy_count[team_name][3] += self.entities[str(eid)].info.energy
 		
 
-		for team, count in team_entity_count.items():
-			print("{} 剩余实体数量：\nplanet: {}\ndestroyer: {}\nminer: {}\nscout: {}".format(team, count[0], count[1], count[2], count[3]))
+		for t in team_energy_count:
+			print("{} 剩余实体：".format(t))
+			print("planet: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][0],
+				team_energy_count[t][0] / team_entity_count[t][0] if team_entity_count[t][0] != 0 else 0
+			))
+			print("destroyer: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][1],
+				team_energy_count[t][1] / team_entity_count[t][1] if team_entity_count[t][1] != 0 else 0
+			))
+			print("miner: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][2],
+				team_energy_count[t][2] / team_entity_count[t][2] if team_entity_count[t][2] != 0 else 0
+			))
+			print("scout: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][3],
+				team_energy_count[t][3] / team_entity_count[t][3] if team_entity_count[t][3] != 0 else 0
+			))
 
 		self.save_replay()
 		self.game_end_flag = True
