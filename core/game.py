@@ -12,9 +12,10 @@ from core.classes import Map
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams, map_path, game_round, debug=False):
+	def __init__(self, teams, map_path, game_round, debug=False, show_progress=True):
 		self.team_names = teams
 		self.game_round = game_round
+		self.show_progress = show_progress
 		self.round = 0
 		self.map = None
 		self.entities = {}  # 所有的实体
@@ -83,12 +84,16 @@ class Instance:
 	# 管理全局回合的方法。
 	def run(self):
 		self.new_replay()  # 初始化
-		looper = tqdm(range(self.game_round))
+		looper = range(self.game_round)
+		if self.show_progress:
+			looper = tqdm(looper)
+			
 		for _ in looper:  # 执行回合循环
-			looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
+			if self.show_progress:
+				looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
 			self.next_round()
 			if self.game_end_flag:
-				break
+				return self.replay["winner"], self.replay["reason"], self.replay_path
 
 		self.counting_result()  # 统计比赛数据
 
@@ -274,6 +279,24 @@ class Instance:
 			print("原因：队伍所有实体的总能量更高。")
 		else:
 			print("原因：平局")
+
+		team_entity_count = {team: [0, 0, 0, 0] for team in self.team_names}
+		for eid in self.available_entities_ids:
+			team_tag = int(self.entities[str(eid)].info.team.tag)
+			team_name = self.team_names[team_tag]
+			entity_type = self.entities[str(eid)].info.type.name
+			if entity_type == "planet":
+				team_entity_count[team_name][0] += 1
+			elif entity_type == "destroyer":
+				team_entity_count[team_name][1] += 1
+			elif entity_type == "miner":
+				team_entity_count[team_name][2] += 1
+			elif entity_type == "scout":
+				team_entity_count[team_name][3] += 1
+		
+
+		for team, count in team_entity_count.items():
+			print("{} 剩余实体数量：\nplanet: {}\ndestroyer: {}\nminer: {}\nscout: {}".format(team, count[0], count[1], count[2], count[3]))
 
 		self.save_replay()
 		self.game_end_flag = True
