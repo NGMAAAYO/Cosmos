@@ -1,8 +1,10 @@
+from core.entity import Controller
+
 class Player:
     def __init__(self):
         self.controller = None
     
-    def run(self, controller):
+    def run(self, controller: Controller):
         self.controller = controller
         entity_type = controller.get_type().name
         if entity_type == "planet":
