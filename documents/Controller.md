@@ -28,6 +28,10 @@ from core.entity import Controller
 
 > 返回自身的防护值
 
+#### def get_energy(self) -> int:
+
+> 返回自身的能量值
+
 #### def get_id(self) -> int:
 
 > 返回自身的`ID`
