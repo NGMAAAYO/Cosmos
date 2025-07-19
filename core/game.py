@@ -3,6 +3,7 @@ import random
 import math
 import time
 import json
+import os
 from tqdm import tqdm
 
 from core.api import *
@@ -12,9 +13,10 @@ from core.classes import Map
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams, map_path, game_round, debug=False):
+	def __init__(self, teams, map_path, game_round, debug=False, show_progress=True):
 		self.team_names = teams
 		self.game_round = game_round
+		self.show_progress = show_progress
 		self.round = 0
 		self.map = None
 		self.entities = {}  # 所有的实体
@@ -42,7 +44,7 @@ class Instance:
 		for i in self.overdrive_factor:
 			if i[0] == team.tag and i[2] > self.round:  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
-		return (1.0 + 0.001) ** index
+		return (1.0 + 0.001) ** min(1145, index)
 
 	def init_map(self, map_path):
 		f = open(map_path, "r", encoding="utf-8")
@@ -83,18 +85,16 @@ class Instance:
 	# 管理全局回合的方法。
 	def run(self):
 		self.new_replay()  # 初始化
-		if self.debug:  # 只有debug的场合才会显示进度条
-			looper = tqdm(range(self.game_round))
-			for i in looper:  # 执行回合循环
+		looper = range(self.game_round)
+		if self.show_progress:
+			looper = tqdm(looper)
+			
+		for _ in looper:  # 执行回合循环
+			if self.show_progress:
 				looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
-				self.next_round()
-				if self.game_end_flag:
-					break
-		else:
-			for i in range(self.game_round):
-				self.next_round()
-				if self.game_end_flag:
-					break
+			self.next_round()
+			if self.game_end_flag:
+				return self.replay["winner"], self.replay["reason"], self.replay_path
 
 		self.counting_result()  # 统计比赛数据
 
@@ -259,6 +259,7 @@ class Instance:
 		self.replay["rounds"].append([self.entities[str(rid)].info.to_dict() for rid in self.available_entities_ids])
 
 	def save_replay(self):
+		os.makedirs(os.path.dirname(self.replay_path), exist_ok=True)
 		with open(self.replay_path, "w", encoding="utf-8") as f:
 			f.write(json.dumps(self.replay))
 
@@ -280,6 +281,52 @@ class Instance:
 			print("原因：队伍所有实体的总能量更高。")
 		else:
 			print("原因：平局")
+
+		team_entity_count = [[0, 0, 0, 0] for _ in self.team_names]
+		team_energy_count = [[0, 0, 0, 0] for _ in self.team_names]
+		neutral_count = 0
+		for eid in self.available_entities_ids:
+			team_tag = self.entities[str(eid)].info.team.tag
+			if team_tag == "Neutral":
+				neutral_count += 1
+				continue
+			team_tag = int(team_tag)
+			entity_type = self.entities[str(eid)].info.type.name
+			if entity_type == "planet":
+				team_entity_count[team_tag][0] += 1
+				team_energy_count[team_tag][0] += self.entities[str(eid)].info.energy
+			elif entity_type == "destroyer":
+				team_entity_count[team_tag][1] += 1
+				team_energy_count[team_tag][1] += self.entities[str(eid)].info.energy
+			elif entity_type == "miner":
+				team_entity_count[team_tag][2] += 1
+				team_energy_count[team_tag][2] += self.entities[str(eid)].info.energy
+			elif entity_type == "scout":
+				team_entity_count[team_tag][3] += 1
+				team_energy_count[team_tag][3] += self.entities[str(eid)].info.energy
+		
+
+		for t in range(len(self.team_names)):
+			print("========\n[Team {}] {} 剩余实体：".format(t, self.team_names[t]))
+			print("planet: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][0],
+				team_energy_count[t][0] / team_entity_count[t][0] if team_entity_count[t][0] != 0 else 0
+			))
+			print("destroyer: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][1],
+				team_energy_count[t][1] / team_entity_count[t][1] if team_entity_count[t][1] != 0 else 0
+			))
+			print("miner: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][2],
+				team_energy_count[t][2] / team_entity_count[t][2] if team_entity_count[t][2] != 0 else 0
+			))
+			print("scout: {} 平均能量：{:.2f}".format(
+				team_entity_count[t][3],
+				team_energy_count[t][3] / team_entity_count[t][3] if team_entity_count[t][3] != 0 else 0
+			))
+
+		print("========\n中立实体：{}".format(neutral_count))
+		print("回放已保存至：{}".format(self.replay_path))
 
 		self.save_replay()
 		self.game_end_flag = True
