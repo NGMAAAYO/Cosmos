@@ -6,6 +6,7 @@
 - [游戏规则介绍](https://docs.misaka17032.com/)
 - [游戏开发文档](https://docs.misaka17032.com/documents/)
 - [新手入门指南](https://docs.misaka17032.com/brief.html)
+- [从零开始设计自己的AI](https://docs.misaka17032.com/tutorial.html)
 
 -----
 
