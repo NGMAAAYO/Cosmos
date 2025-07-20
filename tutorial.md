@@ -355,8 +355,7 @@ def run_miner(self):
 <details close>
 	<summary>展开完整代码</summary>
 
-```python
-import random
+<pre><code>import random
 
 from src import template
 from core.api import *
@@ -503,8 +502,7 @@ class Player(template.Player):
 					return  # 如果移动成功，同理，可以直接跳过回合
 		
 		# 如果没有发现敌人的miner，则继续探索
-		self.explore()
-```
+		self.explore()</code></pre>
 
 </details>
 
