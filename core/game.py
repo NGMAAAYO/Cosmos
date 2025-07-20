@@ -5,15 +5,16 @@ import time
 import json
 import os
 from tqdm import tqdm
+from typing import List, Tuple, Optional
 
 from core.api import *
-from core.entity import Entity
+from core.entity import Entity, Controller
 from core.classes import Map
 
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams, map_path, game_round, debug=False, show_progress=True):
+	def __init__(self, teams: List[str], map_path: str, game_round: int, debug: bool = False, show_progress: bool = True) -> None:
 		self.team_names = teams
 		self.game_round = game_round
 		self.show_progress = show_progress
@@ -39,14 +40,14 @@ class Instance:
 		self.game_end_flag = False
 
 	# 计算过载系数
-	def get_overdrive_factor(self, team):
+	def get_overdrive_factor(self, team: Team) -> float:
 		index = 0
 		for i in self.overdrive_factor:
 			if i[0] == team.tag and i[2] > self.round:  # 如果是同一队并且过期轮数大于当前轮数，则累加
 				index += i[1]
 		return (1.0 + 0.001) ** min(1145, index)
 
-	def init_map(self, map_path):
+	def init_map(self, map_path: str) -> None:
 		f = open(map_path, "r", encoding="utf-8")
 		fmap = json.loads(f.read())  # 读取json格式的地图
 		f.close()
@@ -63,7 +64,7 @@ class Instance:
 				self.all_teams.append(Team(planet["team"]))
 			self.planet_list.append(self.add_entity(EntityType("planet"), planet["energy"], MapLocation(planet["x"], planet["y"]).translate(dx, dy), Team(planet["team"])))
 
-	def add_entity(self, entity_type, energy, location, team, planet=None):
+	def add_entity(self, entity_type: EntityType, energy: int, location: MapLocation, team: Team, planet: Optional[int] = None) -> int:
 		if not self.map.include(*location.to_tuple()):
 			raise Exception("尝试在地图外生成实体。")
 		rid = random.randint(10000, 99999)
@@ -76,14 +77,14 @@ class Instance:
 			self.entity_instances[str(rid)] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
 		return rid
 
-	def remove_entity(self, entity_id):
+	def remove_entity(self, entity_id: int) -> None:
 		self.available_entities_ids.remove(entity_id)
 		self.deleted_entities_ids.append(entity_id)
 		del self.entities[str(entity_id)]
 		del self.entity_instances[str(entity_id)]
 
 	# 管理全局回合的方法。
-	def run(self):
+	def run(self) -> Tuple[str, str, str]:
 		self.new_replay()  # 初始化
 		looper = range(self.game_round)
 		if self.show_progress:
@@ -100,7 +101,7 @@ class Instance:
 
 		return self.replay["winner"], self.replay["reason"], self.replay_path
 
-	def next_round(self):
+	def next_round(self) -> None:
 		self.round += 1
 		self.charge_list = []  # 星球充能列表
 		self.deleted_entities_ids = []  # 重置删除实体列表
@@ -124,7 +125,7 @@ class Instance:
 						print("[Team {}] {}".format(self.entities[str(rid)].info.team, err))
 		self.end_round_check()  # 一轮最末尾进行检查，判断游戏是否结束，计算全局变量
 
-	def run_instance(self, entity_id):
+	def run_instance(self, entity_id: int) -> None:
 		entity = self.entities[str(entity_id)]  # 获取实体
 		all_entities = []
 		for rid in self.available_entities_ids:  # 获取当前的在场实体
@@ -134,7 +135,7 @@ class Instance:
 		controller = self.entity_instances[str(entity_id)].run(controller)  # 运行玩家实例
 		self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
 
-	def end_instance_check(self, entity_id, controller):
+	def end_instance_check(self, entity_id: int, controller: Controller) -> None:
 		self.entities[str(entity_id)].info, self.entities[str(entity_id)].cooldown, actions = controller.get_actions()  # 更新本地实体状态
 		local_info = self.entities[str(entity_id)].info
 		for action in actions:
@@ -191,7 +192,7 @@ class Instance:
 				if self.entities[created_planet_index].info.team == local_info.team:  # 如果母星仍然属于本队
 					self.entities[created_planet_index].info.energy += math.floor((0.02 + 0.03 * math.e ** (-0.001 * local_info.energy)) * local_info.energy)  # 增加资源
 
-	def end_round_check(self):  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
+	def end_round_check(self) -> None:  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
 		alive_team = []
 		for rid in self.available_entities_ids:
 			entity = self.entities[str(rid)]  # 遍历剩余实体
@@ -221,7 +222,7 @@ class Instance:
 				self.entities[str(c[0])].info.energy += math.floor(c[1] / 2)  # 返还一半的能量
 
 	# 计算比赛结果的方法
-	def counting_result(self):
+	def counting_result(self) -> None:
 		max_charge = max(self.charge_result)  # 充能最多的值
 		max_charge_team = []
 		for i, c in enumerate(self.charge_result):  # 遍历
@@ -255,16 +256,16 @@ class Instance:
 					self.end_game("tie", None)  # 平局
 
 	# 保存这一回合至回放中
-	def new_replay(self):
+	def new_replay(self) -> None:
 		self.replay["rounds"].append([self.entities[str(rid)].info.to_dict() for rid in self.available_entities_ids])
 
-	def save_replay(self):
+	def save_replay(self) -> None:
 		os.makedirs(os.path.dirname(self.replay_path), exist_ok=True)
 		with open(self.replay_path, "w", encoding="utf-8") as f:
 			f.write(json.dumps(self.replay))
 
 	# 结束比赛的方法
-	def end_game(self, reason, winner):
+	def end_game(self, reason: str, winner: Optional[int]) -> None:
 		# 保存胜者和胜利原因
 		self.replay["winner"] = self.team_names[winner] if winner is not None else "None"
 		self.replay["reason"] = reason
