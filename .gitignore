@@ -2,4 +2,6 @@
 *.py[cod]
 python/
 src/
+!src/example/
+!src/template.py
 replays/
