@@ -690,6 +690,169 @@ public:
 };
 
 
+// ======================== Engine Functions ========================
+
+// Compute overdrive factor from the global list
+double engine_get_overdrive_factor(
+    const py::list& overdrive_factor, const std::string& team_tag, int current_round)
+{
+    double index = 0;
+    for (auto item : overdrive_factor) {
+        py::tuple tup = item.cast<py::tuple>();
+        std::string tag = tup[0].cast<std::string>();
+        double energy = tup[1].cast<double>();
+        int expire_round = tup[2].cast<int>();
+        if (tag == team_tag && expire_round > current_round)
+            index += energy;
+    }
+    return std::pow(1.001, std::min(1145.0, index));
+}
+
+// Process overdrive effects on all available entities
+// entity_ids: list of available entity IDs
+// entity_infos: corresponding EntityInfo for each ID (same order)
+// attacker: info of the overdrive entity
+// radius: overdrive radius
+// odfactor: precomputed overdrive factor
+// Returns list of tuples: (entity_id, new_energy, new_defence, new_team_tag, should_remove)
+py::list engine_process_overdrive(
+    const std::vector<int>& entity_ids,
+    const std::vector<EntityInfo>& entity_infos,
+    const EntityInfo& attacker,
+    int radius,
+    double odfactor)
+{
+    py::list results;
+    if (attacker.defence <= 10) return results;
+
+    // Find targets in radius
+    std::vector<size_t> target_indices;
+    for (size_t i = 0; i < entity_ids.size(); i++) {
+        if (entity_infos[i].location.distance_to(attacker.location) <= radius)
+            target_indices.push_back(i);
+    }
+
+    if (target_indices.empty()) return results;
+
+    int amount = (int)((attacker.defence - 10.0) / target_indices.size() * odfactor);
+
+    for (size_t idx : target_indices) {
+        int rid = entity_ids[idx];
+        const EntityInfo& ei = entity_infos[idx];
+        int new_energy = ei.energy;
+        int new_defence = ei.defence;
+        std::string new_team;  // empty = unchanged
+        bool should_remove = false;
+
+        if (ei.team == attacker.team) {
+            // Friendly
+            if (ei.type.name == "planet") {
+                new_energy += amount;
+            } else {
+                new_defence = std::min(new_defence + amount, ei.init_defence);
+            }
+        } else {
+            // Enemy
+            if (ei.type.name == "planet") {
+                new_energy -= amount;
+                if (new_energy < 0) {
+                    new_energy = -new_energy;
+                    new_team = attacker.team.tag;
+                }
+            } else if (ei.type.name == "destroyer") {
+                new_defence -= amount;
+                if (new_defence < 0) {
+                    new_defence = std::min(-new_defence, ei.init_defence);
+                    new_team = attacker.team.tag;
+                } else if (new_defence == 0) {
+                    should_remove = true;
+                }
+            } else {
+                // miner or scout
+                new_defence -= amount;
+                if (new_defence <= 0) {
+                    should_remove = true;
+                }
+            }
+        }
+        results.append(py::make_tuple(rid, new_energy, new_defence, new_team, should_remove));
+    }
+    return results;
+}
+
+// Compute miner income for the mother planet
+int engine_compute_miner_income(int energy) {
+    return (int)std::floor((0.02 + 0.03 * std::exp(-0.001 * energy)) * energy);
+}
+
+// Process charge round resolution
+// charge_list: list of (entity_id, energy) pairs
+// Returns (winner_team_idx_or_neg1, list of (entity_id, energy_return))
+py::tuple engine_process_charge(
+    const std::vector<std::pair<int, int>>& charge_list,
+    const std::vector<std::string>& charge_team_tags)
+{
+    py::list returns;
+    if (charge_list.empty())
+        return py::make_tuple(-1, returns);
+
+    int max_energy = -1;
+    for (auto& [id, e] : charge_list)
+        max_energy = std::max(max_energy, e);
+
+    std::vector<int> max_planets;
+    for (size_t i = 0; i < charge_list.size(); i++) {
+        if (charge_list[i].second == max_energy)
+            max_planets.push_back((int)i);
+    }
+
+    if (max_planets.size() == 1) {
+        int winner_idx = max_planets[0];
+        int winner_team = std::stoi(charge_team_tags[winner_idx]);
+        for (size_t i = 0; i < charge_list.size(); i++) {
+            if ((int)i != winner_idx)
+                returns.append(py::make_tuple(charge_list[i].first, (int)std::floor(charge_list[i].second / 2.0)));
+        }
+        return py::make_tuple(winner_team, returns);
+    } else {
+        for (size_t i = 0; i < charge_list.size(); i++)
+            returns.append(py::make_tuple(charge_list[i].first, (int)std::floor(charge_list[i].second / 2.0)));
+        return py::make_tuple(-1, returns);
+    }
+}
+
+// Check round end conditions
+// Returns (alive_team_tags, miner_evolution_ids)
+py::tuple engine_check_round_end(
+    const std::vector<int>& entity_ids,
+    const std::vector<std::string>& team_tags,
+    const std::vector<std::string>& type_names,
+    const std::vector<int>& created_rounds,
+    int current_round)
+{
+    py::list alive_teams;
+    py::list evolutions;
+    std::vector<std::string> seen_teams;
+
+    for (size_t i = 0; i < entity_ids.size(); i++) {
+        // Alive teams
+        bool found = false;
+        for (auto& t : seen_teams) {
+            if (t == team_tags[i]) { found = true; break; }
+        }
+        if (!found) {
+            seen_teams.push_back(team_tags[i]);
+            alive_teams.append(py::str(team_tags[i]));
+        }
+        // Miner evolution
+        if (type_names[i] == "miner" && current_round >= created_rounds[i] + 300) {
+            evolutions.append(entity_ids[i]);
+        }
+    }
+    return py::make_tuple(alive_teams, evolutions);
+}
+
+
 // ======================== PYBIND11 MODULE ========================
 PYBIND11_MODULE(cosmos_core, m) {
     m.doc() = "Cosmos game core C++ acceleration module";
@@ -876,4 +1039,18 @@ PYBIND11_MODULE(cosmos_core, m) {
         .def_readwrite("created_round", &Entity::created_round)
         .def_readwrite("created_planet", &Entity::created_planet)
         .def("get_controller", &Entity::get_controller);
+
+    // Engine functions
+    m.def("engine_get_overdrive_factor", &engine_get_overdrive_factor,
+          py::arg("overdrive_factor"), py::arg("team_tag"), py::arg("current_round"));
+    m.def("engine_process_overdrive", &engine_process_overdrive,
+          py::arg("entity_ids"), py::arg("entity_infos"), py::arg("attacker"),
+          py::arg("radius"), py::arg("odfactor"));
+    m.def("engine_compute_miner_income", &engine_compute_miner_income,
+          py::arg("energy"));
+    m.def("engine_process_charge", &engine_process_charge,
+          py::arg("charge_list"), py::arg("charge_team_tags"));
+    m.def("engine_check_round_end", &engine_check_round_end,
+          py::arg("entity_ids"), py::arg("team_tags"), py::arg("type_names"),
+          py::arg("created_rounds"), py::arg("current_round"));
 }
