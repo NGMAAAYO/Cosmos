@@ -7,6 +7,10 @@ import os
 from tqdm import tqdm
 
 from core import Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity
+from core.cosmos_core import (
+	engine_get_overdrive_factor, engine_process_overdrive,
+	engine_compute_miner_income, engine_process_charge, engine_check_round_end
+)
 
 
 # 定义比赛示例的类
@@ -38,11 +42,7 @@ class Instance:
 
 	# 计算过载系数
 	def get_overdrive_factor(self, team):
-		index = 0
-		for i in self.overdrive_factor:
-			if i[0] == team.tag and i[2] > self.round:  # 如果是同一队并且过期轮数大于当前轮数，则累加
-				index += i[1]
-		return (1.0 + 0.001) ** min(1145, index)
+		return engine_get_overdrive_factor(self.overdrive_factor, team.tag, self.round)
 
 	def init_map(self, map_path):
 		f = open(map_path, "r", encoding="utf-8")
@@ -142,41 +142,20 @@ class Instance:
 				self.charge_list.append((entity_id, action[1]))  # 保存id，等到回合结束后比较
 			elif action[0] == "overdrive":  # 过载，参数为 radius
 				self.remove_entity(entity_id)  # 过载后删除本实体
-				targets = []
-				for rid in self.available_entities_ids:  # 选出所有在半径内的实体
-					if self.entities[str(rid)].info.location.distance_to(local_info.location) <= action[1]:
-						targets.append(rid)
-				if len(targets) != 0 and local_info.defence > 10:  # 注意，过载应该是以防护值为基础值
-					base_energy = (local_info.defence - 10) / len(targets)  # 均分能量
-					odfactor = self.get_overdrive_factor(local_info.team)  # 获得当前增益系数
-					for rid in targets:  # 依次处理
-						entity_info = self.entities[str(rid)].info
-						if entity_info.team == local_info.team:  # 友军的场合
-							if entity_info.type == "planet":
-								self.entities[str(rid)].info.energy += int(base_energy * odfactor)
-							else:
-								self.entities[str(rid)].info.defence += int(base_energy * odfactor)
-								self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
-						else:  # 非友军的场合
-							if entity_info.type == "planet":
-								self.entities[str(rid)].info.energy -= int(base_energy * odfactor)
-								if self.entities[str(rid)].info.energy < 0:  # 如果能量值小于零
-									self.entities[str(rid)].info.energy = -self.entities[str(rid)].info.energy  # 新实体能量值等于绝对值
-									self.entities[str(rid)].info.team = local_info.team  # 转换队伍
-									self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
-							else:
-								self.entities[str(rid)].info.defence -= int(base_energy * odfactor)
-								if entity_info.type == "destroyer":
-									if self.entities[str(rid)].info.defence < 0:  # 如果防护值小于零
-										self.entities[str(rid)].info.defence = -self.entities[str(rid)].info.defence  # 新实体防护值等于绝对值
-										self.entities[str(rid)].info.defence = min(self.entities[str(rid)].info.defence, entity_info.init_defence)  # 限制上限
-										self.entities[str(rid)].info.team = local_info.team  # 转换队伍
-										self.entity_instances[str(rid)] = self.team_instances[int(local_info.team.tag)].Player()  # 对应队伍的实例
-									elif self.entities[str(rid)].info.defence == 0:
-										self.remove_entity(entity_info.ID)
-								else:
-									if self.entities[str(rid)].info.defence <= 0:  # 如果防护值小于零
-										self.remove_entity(entity_info.ID)  # 删除实体
+				# 使用C++引擎计算过载效果
+				ids = list(self.available_entities_ids)
+				infos = [self.entities[str(rid)].info for rid in ids]
+				odfactor = self.get_overdrive_factor(local_info.team)
+				effects = engine_process_overdrive(ids, infos, local_info, action[1], odfactor)
+				for rid, new_energy, new_defence, new_team, should_remove in effects:
+					if should_remove:
+						self.remove_entity(rid)
+					else:
+						self.entities[str(rid)].info.energy = new_energy
+						self.entities[str(rid)].info.defence = new_defence
+						if new_team:  # 队伍转换
+							self.entities[str(rid)].info.team = Team(new_team)
+							self.entity_instances[str(rid)] = self.team_instances[int(new_team)].Player()
 
 			elif action[0] == "analyze":  # 分析，参数为 target
 				if action[1].type == "miner" and action[1].team != local_info.team:
@@ -187,36 +166,30 @@ class Instance:
 			if self.round >= self.entities[str(entity_id)].created_round + 50:  # 如果已经超过了50回合
 				created_planet_index = str(self.entities[str(entity_id)].created_planet)
 				if self.entities[created_planet_index].info.team == local_info.team:  # 如果母星仍然属于本队
-					self.entities[created_planet_index].info.energy += math.floor((0.02 + 0.03 * math.e ** (-0.001 * local_info.energy)) * local_info.energy)  # 增加资源
+					self.entities[created_planet_index].info.energy += engine_compute_miner_income(local_info.energy)
 
 	def end_round_check(self):  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
-		alive_team = []
-		for rid in self.available_entities_ids:
-			entity = self.entities[str(rid)]  # 遍历剩余实体
-			if entity.info.team not in alive_team:  # 获得还有实体在场的队伍Tag
-				alive_team.append(entity.info.team)
-			if entity.info.type == "miner":  # 判断进化
-				if self.round >= entity.created_round + 300:
-					self.entities[str(rid)].info.type = EntityType("destroyer")
+		# 使用C++引擎检查存活队伍和开采舰进化
+		ids = list(self.available_entities_ids)
+		team_tags = [self.entities[str(rid)].info.team.tag for rid in ids]
+		type_names = [self.entities[str(rid)].info.type.name for rid in ids]
+		created_rounds = [self.entities[str(rid)].created_round for rid in ids]
+		alive_team_tags, evolution_ids = engine_check_round_end(ids, team_tags, type_names, created_rounds, self.round)
+
+		for rid in evolution_ids:
+			self.entities[str(rid)].info.type = EntityType("destroyer")
 
 		self.new_replay()  # 保存录像
-		if len(alive_team) <= 1:
-			self.end_game("eliminate", int(alive_team[0].tag))  # 结束游戏
+		if len(alive_team_tags) <= 1:
+			self.end_game("eliminate", int(alive_team_tags[0]))  # 结束游戏
 
-		max_energy = -1  # 计算最大的能量
-		for c in self.charge_list:  # 遍历所有星球
-			max_energy = max(max_energy, c[1])
-
-		max_planet = []
-		for c in self.charge_list:  # 遍历第二次，尝试求出最大值的位置
-			if c[1] == max_energy:
-				max_planet.append(c[0])  # 收集最大值星球的索引
-
-		for c in self.charge_list:
-			if len(max_planet) == 1 and max_planet[0] == c[0]:  # 唯一最大值的场合
-				self.charge_result[int(self.entities[str(c[0])].info.team.tag)] += 1  # 充能结果加一
-			else:
-				self.entities[str(c[0])].info.energy += math.floor(c[1] / 2)  # 返还一半的能量
+		# 使用C++引擎处理充能
+		charge_team_tags = [self.entities[str(c[0])].info.team.tag for c in self.charge_list]
+		winner_team, returns = engine_process_charge(self.charge_list, charge_team_tags)
+		if winner_team >= 0:
+			self.charge_result[winner_team] += 1
+		for eid, energy_return in returns:
+			self.entities[str(eid)].info.energy += energy_return
 
 	# 计算比赛结果的方法
 	def counting_result(self):
