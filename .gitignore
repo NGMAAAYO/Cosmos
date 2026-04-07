@@ -4,3 +4,14 @@
 src/
 maps/
 replays/
+
+# C++ build artifacts
+core/build/
+core/.build_hash
+core/*.pyd
+core/*.so
+core/*.dylib
+core/_setup.py
+
+# Allow C++ source in core/src
+!core/src/

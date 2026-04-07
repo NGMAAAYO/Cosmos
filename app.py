@@ -25,6 +25,9 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import concurrent.futures
 
+from build_core import ensure_core_built
+ensure_core_built()
+
 from core.game import Instance
 
 ############################
