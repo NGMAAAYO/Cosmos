@@ -7,9 +7,7 @@ import os
 from tqdm import tqdm
 from typing import List, Tuple, Optional
 
-from core.api import *
-from core.entity import Entity, Controller
-from core.classes import Map
+from core import Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity
 
 
 # 定义比赛示例的类

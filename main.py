@@ -5,6 +5,9 @@ import random
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from build_core import ensure_core_built
+ensure_core_built()
+
 from core.game import Instance
 
 
