@@ -6,7 +6,10 @@
 #include <tuple>
 #include <stdexcept>
 #include <algorithm>
+#include <cstdint>
 #include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace py = pybind11;
 
@@ -278,11 +281,19 @@ public:
     // action state
     int charged_;
     bool to_create_;
-    py::list create_param_;
+    std::string create_type_name_;
+    Direction create_direction_;
+    int create_energy_;
     bool to_overdrive_;
     int overdrive_range_;
     bool to_analyze_;
-    py::object analyze_target_;
+    int analyze_target_id_;
+
+    mutable bool sensed_index_ready_;
+    mutable bool detected_index_ready_;
+    mutable std::unordered_map<std::uint64_t, size_t> sensed_by_location_;
+    mutable std::unordered_map<int, size_t> sensed_by_id_;
+    mutable std::unordered_set<std::uint64_t> detected_locations_;
 
     Controller(EntityInfo info, std::vector<EntityInfo> sensed_entities,
                std::vector<MapLocation> detected_entities, std::vector<Team> teams_info,
@@ -292,24 +303,58 @@ public:
           detected_entities_(std::move(detected_entities)), teams_info_(std::move(teams_info)),
           charge_point_(charge_point), map_(gmap), round_count_(round_count),
           overdrive_factor_(overdrive_factor), entity_count_(entity_count),
-          charged_(0), to_create_(false), to_overdrive_(false),
-          overdrive_range_(0), to_analyze_(false), analyze_target_(py::none()) {}
+          charged_(0), to_create_(false), create_energy_(0), to_overdrive_(false),
+          overdrive_range_(0), to_analyze_(false), analyze_target_id_(-1),
+          sensed_index_ready_(false), detected_index_ready_(false) {}
+
+    static std::uint64_t location_key(const MapLocation& loc) {
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(loc.x)) << 32) |
+               static_cast<std::uint32_t>(loc.y);
+    }
+
+    static bool is_valid_direction(const Direction& d) {
+        return d.dx >= -1 && d.dx <= 1 && d.dy >= -1 && d.dy <= 1 &&
+               !(d.dx == 0 && d.dy == 0);
+    }
+
+    static bool is_buildable_type(const std::string& name) {
+        return name == "destroyer" || name == "miner" || name == "scout";
+    }
+
+    void ensure_sensed_index() const {
+        if (sensed_index_ready_) return;
+        sensed_by_location_.reserve(sensed_entities_.size());
+        sensed_by_id_.reserve(sensed_entities_.size());
+        for (size_t i = 0; i < sensed_entities_.size(); i++) {
+            sensed_by_location_.emplace(location_key(sensed_entities_[i].location), i);
+            sensed_by_id_.emplace(sensed_entities_[i].ID, i);
+        }
+        sensed_index_ready_ = true;
+    }
+
+    void ensure_detected_index() const {
+        if (detected_index_ready_) return;
+        detected_locations_.reserve(detected_entities_.size());
+        for (const auto& loc : detected_entities_)
+            detected_locations_.emplace(location_key(loc));
+        detected_index_ready_ = true;
+    }
 
     // Helper: search by location
     py::object search_by_loc(const MapLocation& loc) const {
-        for (auto& info : sensed_entities_) {
-            if (info.location == loc)
-                return py::cast(info);
-        }
+        ensure_sensed_index();
+        auto it = sensed_by_location_.find(location_key(loc));
+        if (it != sensed_by_location_.end())
+            return py::cast(sensed_entities_[it->second], py::return_value_policy::copy);
         return py::none();
     }
 
     // Helper: search by ID
     py::object search_by_id(int rid) const {
-        for (auto& info : sensed_entities_) {
-            if (info.ID == rid)
-                return py::cast(info);
-        }
+        ensure_sensed_index();
+        auto it = sensed_by_id_.find(rid);
+        if (it != sensed_by_id_.end())
+            return py::cast(sensed_entities_[it->second], py::return_value_policy::copy);
         return py::none();
     }
 
@@ -333,14 +378,14 @@ public:
         if (round < 0) throw std::runtime_error("轮数必须为非负数。");
         double index = 0;
         for (auto item : overdrive_factor_) {
-            py::list lst = item.cast<py::list>();
-            std::string tag = lst[0].cast<std::string>();
-            double energy = lst[1].cast<double>();
-            int expire_round = lst[2].cast<int>();
+            py::tuple tup = item.cast<py::tuple>();
+            std::string tag = tup[0].cast<std::string>();
+            double energy = tup[1].cast<double>();
+            int expire_round = tup[2].cast<int>();
             if (team.tag == tag && expire_round > round_count_ + round)
                 index += energy;
         }
-        return std::pow(1.001, index);
+        return std::pow(1.001, std::min(1145.0, index));
     }
 
     int get_defence() const { return info_.defence; }
@@ -364,10 +409,8 @@ public:
 
     bool is_blocked(const Direction& d) const {
         MapLocation loc = adjacent_location(d);
-        for (auto& info : sensed_entities_) {
-            if (info.location == loc) return true;
-        }
-        return false;
+        ensure_sensed_index();
+        return sensed_by_location_.find(location_key(loc)) != sensed_by_location_.end();
     }
 
     bool is_location_occupied(const MapLocation& loc) const {
@@ -375,10 +418,8 @@ public:
             throw std::runtime_error("超出探测范围。");
         if (!on_the_map(loc))
             throw std::runtime_error("指定位置不在地图上。");
-        for (auto& entity : detected_entities_) {
-            if (entity == loc) return true;
-        }
-        return false;
+        ensure_detected_index();
+        return detected_locations_.find(location_key(loc)) != detected_locations_.end();
     }
 
     bool is_ready() const { return cooldown_ < 1.0; }
@@ -394,7 +435,7 @@ public:
     }
 
     bool can_detect_radius(int radius) const {
-        return radius <= info_.type.detection_radius;
+        return radius >= 0 && radius <= info_.type.detection_radius;
     }
 
     bool can_sense_location(const MapLocation& loc) const {
@@ -406,7 +447,7 @@ public:
     }
 
     bool can_sense_radius(int radius) const {
-        return info_.type.sensor_radius >= radius;
+        return radius >= 0 && info_.type.sensor_radius >= radius;
     }
 
     py::object sense_entity_by_id(int rid) const {
@@ -425,12 +466,15 @@ public:
         int radius = radius_obj.is_none() ? info_.type.sensor_radius : radius_obj.cast<int>();
 
         std::vector<EntityInfo> entities;
+        entities.reserve(sensed_entities_.size());
+        std::vector<Team> teams;
+        if (!teams_obj.is_none())
+            teams = teams_obj.cast<std::vector<Team>>();
         for (auto& entity : sensed_entities_) {
             if (entity.location.distance_to(center) <= radius) {
                 if (teams_obj.is_none()) {
                     entities.push_back(entity);
                 } else {
-                    auto teams = teams_obj.cast<std::vector<Team>>();
                     for (auto& t : teams) {
                         if (entity.team == t) {
                             entities.push_back(entity);
@@ -445,6 +489,7 @@ public:
 
     std::vector<MapLocation> detect_nearby_entities(int radius) const {
         std::vector<MapLocation> locs;
+        locs.reserve(detected_entities_.size());
         for (auto& entity : detected_entities_) {
             if (entity.distance_to(info_.location) <= radius)
                 locs.push_back(entity);
@@ -466,50 +511,45 @@ public:
 
     bool can_build(const EntityType& entity_type, const Direction& d, int energy) const {
         energy = (int)energy;
+        if (!is_valid_direction(d) || !is_buildable_type(entity_type.name)) return false;
         MapLocation adj = adjacent_location(d);
-        bool blocked = false;
-        for (auto& info : sensed_entities_) {
-            if (info.location == adj) { blocked = true; break; }
-        }
-        return info_.type.name == "planet" && entity_type.name != "planet" &&
+        ensure_sensed_index();
+        bool blocked = sensed_by_location_.find(location_key(adj)) != sensed_by_location_.end();
+        return info_.type.name == "planet" &&
                !blocked && info_.energy >= energy && energy > 0 &&
                is_ready() && map_->include(adj.x, adj.y);
     }
 
     bool can_overdrive(int radius) const {
-        return info_.type.name == "destroyer" && radius <= info_.type.action_radius && is_ready();
+        return info_.type.name == "destroyer" && radius >= 0 &&
+               radius <= info_.type.action_radius && is_ready();
     }
 
     bool can_analyze_by_id(int rid) const {
-        if (info_.type.name == "scout" && is_ready()) {
-            for (auto& info : sensed_entities_) {
-                if (info.ID == rid) {
-                    if (info.location.distance_to(info_.location) <= info_.type.action_radius)
-                        return true;
-                }
-            }
-        }
-        return false;
+        if (info_.type.name != "scout" || !is_ready()) return false;
+        ensure_sensed_index();
+        auto it = sensed_by_id_.find(rid);
+        if (it == sensed_by_id_.end()) return false;
+        const auto& target = sensed_entities_[it->second];
+        return target.type.name == "miner" && !(target.team == info_.team) &&
+               target.location.distance_to(info_.location) <= info_.type.action_radius;
     }
 
     bool can_analyze_by_loc(const MapLocation& loc) const {
-        if (info_.type.name == "scout" && is_ready()) {
-            for (auto& info : sensed_entities_) {
-                if (info.location == loc) {
-                    if (info.location.distance_to(info_.location) <= info_.type.action_radius)
-                        return true;
-                }
-            }
-        }
-        return false;
+        if (info_.type.name != "scout" || !is_ready()) return false;
+        ensure_sensed_index();
+        auto it = sensed_by_location_.find(location_key(loc));
+        if (it == sensed_by_location_.end()) return false;
+        const auto& target = sensed_entities_[it->second];
+        return target.type.name == "miner" && !(target.team == info_.team) &&
+               target.location.distance_to(info_.location) <= info_.type.action_radius;
     }
 
     bool can_move(const Direction& d) const {
+        if (info_.type.name == "planet" || !is_valid_direction(d)) return false;
         MapLocation adj = adjacent_location(d);
-        bool blocked = false;
-        for (auto& info : sensed_entities_) {
-            if (info.location == adj) { blocked = true; break; }
-        }
+        ensure_sensed_index();
+        bool blocked = sensed_by_location_.find(location_key(adj)) != sensed_by_location_.end();
         return is_ready() && !blocked && map_->include(adj.x, adj.y);
     }
 
@@ -529,12 +569,11 @@ public:
     void build(const EntityType& entity_type, const Direction& d, int energy) {
         energy = (int)energy;
         if (info_.type.name != "planet") throw std::runtime_error("只有星球可以建造。");
-        if (entity_type.name == "planet") throw std::runtime_error("星球无法被建造。");
+        if (!is_buildable_type(entity_type.name)) throw std::runtime_error("无法建造指定的实体类型。");
+        if (!is_valid_direction(d)) throw std::runtime_error("只能在相邻位置建造。");
         MapLocation adj = adjacent_location(d);
-        bool blocked = false;
-        for (auto& info : sensed_entities_) {
-            if (info.location == adj) { blocked = true; break; }
-        }
+        ensure_sensed_index();
+        bool blocked = sensed_by_location_.find(location_key(adj)) != sensed_by_location_.end();
         if (blocked) throw std::runtime_error("目标位置被阻塞。");
         if (!map_->include(adj.x, adj.y)) throw std::runtime_error("目标位置不在地图上。");
         if (info_.energy < energy) throw std::runtime_error("能量不足。");
@@ -544,10 +583,9 @@ public:
         info_.energy -= energy;
         cooldown_ += get_cooldown_val(info_.type.action_cooldown);
         to_create_ = true;
-        create_param_ = py::list();
-        create_param_.append(py::cast(entity_type));
-        create_param_.append(py::cast(d));
-        create_param_.append(energy);
+        create_type_name_ = entity_type.name;
+        create_direction_ = d;
+        create_energy_ = energy;
     }
 
     void overdrive(int radius) {
@@ -563,39 +601,29 @@ public:
         if (info_.type.name != "scout") throw std::runtime_error("只有侦查舰可以分析。");
         if (!can_analyze_by_id(rid)) throw std::runtime_error("无法以指定的参数分析。");
         if (!is_ready()) throw std::runtime_error("冷却值必须小于 1。");
-        for (auto& info : sensed_entities_) {
-            if (info.ID == rid) {
-                to_analyze_ = true;
-                analyze_target_ = py::cast(info);
-                info_.defence = std::max(info_.defence - 10, 0);
-                cooldown_ += get_cooldown_val(info_.type.action_cooldown);
-                return;
-            }
-        }
+        to_analyze_ = true;
+        analyze_target_id_ = rid;
+        info_.defence = std::max(info_.defence - 10, 0);
+        cooldown_ += get_cooldown_val(info_.type.action_cooldown);
     }
 
     void analyze_by_loc(const MapLocation& loc) {
         if (info_.type.name != "scout") throw std::runtime_error("只有侦查舰可以分析。");
         if (!can_analyze_by_loc(loc)) throw std::runtime_error("无法以指定的参数分析。");
         if (!is_ready()) throw std::runtime_error("冷却值必须小于 1。");
-        for (auto& info : sensed_entities_) {
-            if (info.location == loc) {
-                to_analyze_ = true;
-                analyze_target_ = py::cast(info);
-                info_.defence = std::max(info_.defence - 10, 0);
-                cooldown_ += get_cooldown_val(info_.type.action_cooldown);
-                return;
-            }
-        }
+        ensure_sensed_index();
+        analyze_target_id_ = sensed_entities_[sensed_by_location_.at(location_key(loc))].ID;
+        to_analyze_ = true;
+        info_.defence = std::max(info_.defence - 10, 0);
+        cooldown_ += get_cooldown_val(info_.type.action_cooldown);
     }
 
     void move(const Direction& d) {
         if (!is_ready()) throw std::runtime_error("冷却值必须小于 1。");
+        if (!is_valid_direction(d)) throw std::runtime_error("只能向相邻位置移动。");
         MapLocation adj = adjacent_location(d);
-        bool blocked = false;
-        for (auto& info : sensed_entities_) {
-            if (info.location == adj) { blocked = true; break; }
-        }
+        ensure_sensed_index();
+        bool blocked = sensed_by_location_.find(location_key(adj)) != sensed_by_location_.end();
         if (blocked) throw std::runtime_error("目标位置被阻塞。");
         if (info_.type.name == "planet") throw std::runtime_error("星球无法移动。");
         if (!map_->include(adj.x, adj.y)) throw std::runtime_error("目标位置不在地图上。");
@@ -613,8 +641,12 @@ public:
         if (info_.type.name == "planet") {
             if (to_create_) {
                 py::list action;
+                py::list create_param;
+                create_param.append(py::cast(EntityType(create_type_name_)));
+                create_param.append(py::cast(create_direction_));
+                create_param.append(create_energy_);
                 action.append("create");
-                action.append(create_param_);
+                action.append(create_param);
                 actions.append(action);
             }
             py::list charge_action;
@@ -631,13 +663,154 @@ public:
             }
         } else if (info_.type.name == "scout") {
             if (to_analyze_) {
+                ensure_sensed_index();
+                auto target = sensed_by_id_.find(analyze_target_id_);
+                if (target == sensed_by_id_.end())
+                    throw std::runtime_error("分析目标已经无效。");
                 py::list action;
                 action.append("analyze");
-                action.append(analyze_target_);
+                action.append(py::cast(sensed_entities_[target->second], py::return_value_policy::copy));
                 actions.append(action);
             }
         }
-        return py::make_tuple(py::cast(info_), cooldown_, actions);
+        return py::make_tuple(py::cast(info_, py::return_value_policy::copy), cooldown_, actions);
+    }
+};
+
+// ======================== EntityIndex ========================
+// Maintains an incrementally updated spatial index of live EntityInfo objects.
+// EntityInfo lives inside Entity, so its address remains stable while Python owns
+// the Entity. The game unregisters an entity before deleting it.
+class EntityIndex {
+    struct Entry {
+        EntityInfo* info;
+        std::uint64_t location;
+        std::string team_tag;
+        size_t order;
+    };
+
+    std::unordered_map<int, Entry> entries_;
+    std::unordered_map<std::uint64_t, std::vector<int>> location_buckets_;
+    std::unordered_map<std::string, int> team_counts_;
+    size_t next_order_ = 0;
+
+    static std::uint64_t location_key(const MapLocation& loc) {
+        return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(loc.x)) << 32) |
+               static_cast<std::uint32_t>(loc.y);
+    }
+
+    void remove_from_bucket(std::uint64_t location, int entity_id) {
+        auto bucket = location_buckets_.find(location);
+        if (bucket == location_buckets_.end()) return;
+        auto& ids = bucket->second;
+        auto item = std::find(ids.begin(), ids.end(), entity_id);
+        if (item != ids.end()) ids.erase(item);
+        if (ids.empty()) location_buckets_.erase(bucket);
+    }
+
+    void decrement_team(const std::string& team_tag) {
+        auto count = team_counts_.find(team_tag);
+        if (count == team_counts_.end()) return;
+        count->second--;
+        if (count->second == 0) team_counts_.erase(count);
+    }
+
+public:
+    void add(EntityInfo& info) {
+        if (entries_.find(info.ID) != entries_.end())
+            throw std::runtime_error("实体已经存在于空间索引中。");
+        std::uint64_t location = location_key(info.location);
+        entries_.emplace(info.ID, Entry{&info, location, info.team.tag, next_order_++});
+        location_buckets_[location].push_back(info.ID);
+        team_counts_[info.team.tag]++;
+    }
+
+    void remove(int entity_id) {
+        auto item = entries_.find(entity_id);
+        if (item == entries_.end())
+            throw std::runtime_error("实体不存在于空间索引中。");
+        remove_from_bucket(item->second.location, entity_id);
+        decrement_team(item->second.team_tag);
+        entries_.erase(item);
+    }
+
+    void sync(int entity_id) {
+        auto item = entries_.find(entity_id);
+        if (item == entries_.end())
+            throw std::runtime_error("实体不存在于空间索引中。");
+        Entry& entry = item->second;
+        std::uint64_t new_location = location_key(entry.info->location);
+        if (new_location != entry.location) {
+            remove_from_bucket(entry.location, entity_id);
+            location_buckets_[new_location].push_back(entity_id);
+            entry.location = new_location;
+        }
+        if (entry.info->team.tag != entry.team_tag) {
+            decrement_team(entry.team_tag);
+            team_counts_[entry.info->team.tag]++;
+            entry.team_tag = entry.info->team.tag;
+        }
+    }
+
+    void set_order(const py::list& entity_ids) {
+        for (py::ssize_t i = 0; i < static_cast<py::ssize_t>(entity_ids.size()); i++) {
+            int entity_id = entity_ids[i].cast<int>();
+            auto item = entries_.find(entity_id);
+            if (item == entries_.end())
+                throw std::runtime_error("执行顺序包含未知实体。");
+            item->second.order = static_cast<size_t>(i);
+        }
+        next_order_ = static_cast<size_t>(entity_ids.size());
+    }
+
+    Controller get_controller(const EntityInfo& observer,
+                              const std::vector<Team>& teams_info,
+                              const std::vector<int>& charge_result,
+                              Map& gmap, double cooldown, int round_count,
+                              py::list overdrive_factor) const {
+        int detection_radius = observer.type.detection_radius;
+        int sensor_radius = observer.type.sensor_radius;
+        int extent = static_cast<int>(std::floor(std::sqrt(detection_radius)));
+        std::vector<const Entry*> candidates;
+        candidates.reserve(64);
+
+        for (int x = observer.location.x - extent; x <= observer.location.x + extent; x++) {
+            for (int y = observer.location.y - extent; y <= observer.location.y + extent; y++) {
+                auto bucket = location_buckets_.find(location_key(MapLocation(x, y)));
+                if (bucket == location_buckets_.end()) continue;
+                for (int entity_id : bucket->second) {
+                    const Entry& entry = entries_.at(entity_id);
+                    if (entry.info->location.distance_to(observer.location) <= detection_radius)
+                        candidates.push_back(&entry);
+                }
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), [](const Entry* lhs, const Entry* rhs) {
+            return lhs->order < rhs->order;
+        });
+
+        std::vector<EntityInfo> sensed_entities;
+        std::vector<MapLocation> detected_entities;
+        sensed_entities.reserve(candidates.size());
+        detected_entities.reserve(candidates.size());
+        bool masks_miners = observer.type.name == "destroyer" || observer.type.name == "miner";
+        for (const Entry* entry : candidates) {
+            const EntityInfo& entity = *entry->info;
+            detected_entities.push_back(entity.location);
+            if (entity.location.distance_to(observer.location) <= sensor_radius) {
+                EntityInfo sensed = entity.copy();
+                if (masks_miners && entity.type.name == "miner" && entity.ID != observer.ID)
+                    sensed.type = EntityType("destroyer");
+                sensed_entities.push_back(std::move(sensed));
+            }
+        }
+
+        auto count = team_counts_.find(observer.team.tag);
+        int entity_count = count == team_counts_.end() ? 0 : count->second;
+        int team_tag = std::stoi(observer.team.tag);
+        return Controller(observer, std::move(sensed_entities), std::move(detected_entities),
+                          teams_info, charge_result[team_tag], &gmap, cooldown, round_count,
+                          overdrive_factor, entity_count);
     }
 };
 
@@ -655,7 +828,7 @@ public:
           created_round(cround),
           created_planet(cplanet.is_none() ? -1 : cplanet.cast<int>()) {}
 
-    Controller get_controller(const std::vector<EntityInfo>& all_entities,
+    Controller get_controller(const py::list& all_entities,
                               const std::vector<Team>& teams_info,
                               const std::vector<int>& charge_result,
                               Map& gmap, int round_count, py::list overdrive_factor) {
@@ -665,8 +838,12 @@ public:
         int det_r = info.type.detection_radius;
         int sen_r = info.type.sensor_radius;
         bool is_destroyer_or_miner = (info.type.name == "destroyer" || info.type.name == "miner");
+        size_t reserve_size = std::min(static_cast<size_t>(all_entities.size()), static_cast<size_t>(64));
+        sensed_entities.reserve(reserve_size);
+        detected_entities.reserve(reserve_size);
 
-        for (auto& entity : all_entities) {
+        for (py::handle item : all_entities) {
+            const EntityInfo& entity = item.cast<const EntityInfo&>();
             if (entity.team == info.team)
                 entity_cnt++;
             int d = entity.location.distance_to(info.location);
@@ -686,6 +863,14 @@ public:
         return Controller(info, std::move(sensed_entities), std::move(detected_entities),
                           teams_info, charge_result[team_tag], &gmap, cooldown, round_count,
                           overdrive_factor, entity_cnt);
+    }
+
+    Controller get_indexed_controller(EntityIndex& entity_index,
+                                      const std::vector<Team>& teams_info,
+                                      const std::vector<int>& charge_result,
+                                      Map& gmap, int round_count, py::list overdrive_factor) {
+        return entity_index.get_controller(info, teams_info, charge_result, gmap, cooldown,
+                                           round_count, overdrive_factor);
     }
 };
 
@@ -716,19 +901,24 @@ double engine_get_overdrive_factor(
 // odfactor: precomputed overdrive factor
 // Returns list of tuples: (entity_id, new_energy, new_defence, new_team_tag, should_remove)
 py::list engine_process_overdrive(
-    const std::vector<int>& entity_ids,
-    const std::vector<EntityInfo>& entity_infos,
+    const py::list& entity_ids,
+    const py::list& entity_infos,
     const EntityInfo& attacker,
     int radius,
     double odfactor)
 {
     py::list results;
     if (attacker.defence <= 10) return results;
+    if (entity_ids.size() != entity_infos.size())
+        throw std::runtime_error("实体 ID 与信息数量不匹配。");
 
     // Find targets in radius
     std::vector<size_t> target_indices;
-    for (size_t i = 0; i < entity_ids.size(); i++) {
-        if (entity_infos[i].location.distance_to(attacker.location) <= radius)
+    target_indices.reserve(static_cast<size_t>(entity_ids.size()));
+    size_t entity_count = static_cast<size_t>(entity_ids.size());
+    for (size_t i = 0; i < entity_count; i++) {
+        const EntityInfo& entity = entity_infos[i].cast<const EntityInfo&>();
+        if (entity.location.distance_to(attacker.location) <= radius)
             target_indices.push_back(i);
     }
 
@@ -737,8 +927,8 @@ py::list engine_process_overdrive(
     int amount = (int)((attacker.defence - 10.0) / target_indices.size() * odfactor);
 
     for (size_t idx : target_indices) {
-        int rid = entity_ids[idx];
-        const EntityInfo& ei = entity_infos[idx];
+        int rid = entity_ids[idx].cast<int>();
+        const EntityInfo& ei = entity_infos[idx].cast<const EntityInfo&>();
         int new_energy = ei.energy;
         int new_defence = ei.defence;
         std::string new_team;  // empty = unchanged
@@ -783,6 +973,14 @@ py::list engine_process_overdrive(
 // Compute miner income for the mother planet
 int engine_compute_miner_income(int energy) {
     return (int)std::floor((0.02 + 0.03 * std::exp(-0.001 * energy)) * energy);
+}
+
+// Serialize a replay frame in one C++/Python boundary crossing.
+py::list engine_replay_round(const py::list& entity_infos) {
+    py::list frame;
+    for (py::handle item : entity_infos)
+        frame.append(item.cast<const EntityInfo&>().to_dict());
+    return frame;
 }
 
 // Process charge round resolution
@@ -836,6 +1034,9 @@ py::tuple engine_check_round_end(
 
     for (size_t i = 0; i < entity_ids.size(); i++) {
         // Alive teams
+        if (team_tags[i] == "Neutral") {
+            continue;
+        }
         bool found = false;
         for (auto& t : seen_teams) {
             if (t == team_tags[i]) { found = true; break; }
@@ -908,13 +1109,13 @@ PYBIND11_MODULE(cosmos_core, m) {
 
     py::class_<EntityType>(m, "EntityType")
         .def(py::init<const std::string&>())
-        .def_readwrite("name", &EntityType::name)
-        .def_readwrite("action_cooldown", &EntityType::action_cooldown)
-        .def_readwrite("action_radius", &EntityType::action_radius)
-        .def_readwrite("defence_ratio", &EntityType::defence_ratio)
-        .def_readwrite("detection_radius", &EntityType::detection_radius)
-        .def_readwrite("initial_cooldown", &EntityType::initial_cooldown)
-        .def_readwrite("sensor_radius", &EntityType::sensor_radius)
+        .def_readonly("name", &EntityType::name)
+        .def_readonly("action_cooldown", &EntityType::action_cooldown)
+        .def_readonly("action_radius", &EntityType::action_radius)
+        .def_readonly("defence_ratio", &EntityType::defence_ratio)
+        .def_readonly("detection_radius", &EntityType::detection_radius)
+        .def_readonly("initial_cooldown", &EntityType::initial_cooldown)
+        .def_readonly("sensor_radius", &EntityType::sensor_radius)
         .def("__repr__", &EntityType::repr)
         .def("__str__", &EntityType::repr)
         .def("__eq__", [](const EntityType& self, const py::object& other) {
@@ -1030,6 +1231,13 @@ PYBIND11_MODULE(cosmos_core, m) {
         .def("set_radio", &Controller::set_radio)
         .def("get_actions", &Controller::get_actions);
 
+    py::class_<EntityIndex>(m, "EntityIndex")
+        .def(py::init<>())
+        .def("add", &EntityIndex::add)
+        .def("remove", &EntityIndex::remove)
+        .def("sync", &EntityIndex::sync)
+        .def("set_order", &EntityIndex::set_order);
+
     py::class_<Entity>(m, "Entity")
         .def(py::init<const EntityType&, int, const MapLocation&, const Team&, int, py::object, int>(),
              py::arg("rtype"), py::arg("energy"), py::arg("location"), py::arg("team"),
@@ -1038,7 +1246,8 @@ PYBIND11_MODULE(cosmos_core, m) {
         .def_readwrite("cooldown", &Entity::cooldown)
         .def_readwrite("created_round", &Entity::created_round)
         .def_readwrite("created_planet", &Entity::created_planet)
-        .def("get_controller", &Entity::get_controller);
+        .def("get_controller", &Entity::get_controller)
+        .def("get_indexed_controller", &Entity::get_indexed_controller);
 
     // Engine functions
     m.def("engine_get_overdrive_factor", &engine_get_overdrive_factor,
@@ -1048,6 +1257,8 @@ PYBIND11_MODULE(cosmos_core, m) {
           py::arg("radius"), py::arg("odfactor"));
     m.def("engine_compute_miner_income", &engine_compute_miner_income,
           py::arg("energy"));
+    m.def("engine_replay_round", &engine_replay_round,
+          py::arg("entity_infos"));
     m.def("engine_process_charge", &engine_process_charge,
           py::arg("charge_list"), py::arg("charge_team_tags"));
     m.def("engine_check_round_end", &engine_check_round_end,

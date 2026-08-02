@@ -1,3 +1,3 @@
 from core.cosmos_core import (
-    Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity
+    Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity, EntityIndex
 )

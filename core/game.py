@@ -7,11 +7,14 @@ import os
 from tqdm import tqdm
 from typing import List, Tuple, Optional
 
-from core import Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity
+from core import Direction, MapLocation, EntityType, EntityInfo, Team, Map, Controller, Entity, EntityIndex
 from core.cosmos_core import (
 	engine_get_overdrive_factor, engine_process_overdrive,
-	engine_compute_miner_income, engine_process_charge, engine_check_round_end
+	engine_compute_miner_income, engine_process_charge, engine_check_round_end,
+	engine_replay_round
 )
+
+SPATIAL_INDEX_THRESHOLD = 128
 
 
 # 定义比赛示例的类
@@ -24,7 +27,9 @@ class Instance:
 		self.map = None
 		self.entities = {}  # 所有的实体
 		self.available_entities_ids = []  # 还在场上的实体的ID
-		self.deleted_entities_ids = []  # 本轮已经删除的实体的ID
+		self.entity_infos = []  # 与 available_entities_ids 同序的实体信息视图
+		self.entity_index = EntityIndex()  # 增量维护的实体空间索引
+		self.deleted_entities_ids = set()  # 本轮已经删除的实体的ID
 		self.charge_result = [0] * len(teams)  # 存储充能结果的对象
 		self.charge_list = []
 		self.overdrive_factor = []  # 过载加成系数，[队伍tag，能量，过期轮数]
@@ -66,20 +71,26 @@ class Instance:
 		if not self.map.include(*location.to_tuple()):
 			raise Exception("尝试在地图外生成实体。")
 		rid = random.randint(10000, 99999)
-		while str(rid) in list(self.entities.keys()):  # 生成唯一ID
+		while rid in self.entities:  # 生成唯一ID
 			rid = random.randint(10000, 99999)
 
-		self.entities[str(rid)] = Entity(entity_type, energy, location, team, self.round, planet, rid)  # 添加新的实体
+		entity = Entity(entity_type, energy, location, team, self.round, planet, rid)
+		self.entities[rid] = entity  # 添加新的实体
 		self.available_entities_ids.append(rid)
+		self.entity_infos.append(entity.info)
+		self.entity_index.add(entity.info)
 		if team != "Neutral":
-			self.entity_instances[str(rid)] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
+			self.entity_instances[rid] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
 		return rid
 
 	def remove_entity(self, entity_id: int) -> None:
-		self.available_entities_ids.remove(entity_id)
-		self.deleted_entities_ids.append(entity_id)
-		del self.entities[str(entity_id)]
-		del self.entity_instances[str(entity_id)]
+		entity_index = self.available_entities_ids.index(entity_id)
+		self.entity_index.remove(entity_id)
+		self.available_entities_ids.pop(entity_index)
+		self.entity_infos.pop(entity_index)
+		self.deleted_entities_ids.add(entity_id)
+		del self.entities[entity_id]
+		self.entity_instances.pop(entity_id, None)
 
 	# 管理全局回合的方法。
 	def run(self) -> Tuple[str, str, str]:
@@ -102,95 +113,107 @@ class Instance:
 	def next_round(self) -> None:
 		self.round += 1
 		self.charge_list = []  # 星球充能列表
-		self.deleted_entities_ids = []  # 重置删除实体列表
+		self.deleted_entities_ids.clear()  # 重置删除实体集合
+		if self.overdrive_factor:
+			self.overdrive_factor = [factor for factor in self.overdrive_factor if factor[2] > self.round]
 		random.shuffle(self.available_entities_ids)  # 打乱实体的执行顺序
+		self.entity_infos = [self.entities[rid].info for rid in self.available_entities_ids]
+		self.entity_index.set_order(self.available_entities_ids)
 
 		for p in self.planet_list:
-			if self.entities[str(p)].info.team != "Neutral":
-				self.entities[str(p)].info.energy += math.ceil(0.2 * math.sqrt(self.round))  # 给每个星球增加资源点
+			if self.entities[p].info.team != "Neutral":
+				self.entities[p].info.energy += math.ceil(0.2 * math.sqrt(self.round))  # 给每个星球增加资源点
 
 		for rid in self.available_entities_ids.copy():  # 分别运行还在场上的所有实体
 			if rid in self.deleted_entities_ids:  # 如果实体已经被删除
 				continue
-			if self.entities[str(rid)].info.team != "Neutral":  # 忽略中立的实体
-				self.entities[str(rid)].cooldown = max(self.entities[str(rid)].cooldown-1, 0)  # 减少冷却
+			if self.entities[rid].info.team != "Neutral":  # 忽略中立的实体
+				self.entities[rid].cooldown = max(self.entities[rid].cooldown-1, 0)  # 减少冷却
 				if self.debug:
 					self.run_instance(rid)
 				else:
 					try:
 						self.run_instance(rid)
 					except Exception as err:
-						print("[Team {}] {}".format(self.entities[str(rid)].info.team, err))
+						print("[Team {}] {}".format(self.entities[rid].info.team, err))
 		self.end_round_check()  # 一轮最末尾进行检查，判断游戏是否结束，计算全局变量
 
 	def run_instance(self, entity_id: int) -> None:
-		entity = self.entities[str(entity_id)]  # 获取实体
-		all_entities = []
-		for rid in self.available_entities_ids:  # 获取当前的在场实体
-			all_entities.append(self.entities[str(rid)].info)
-
-		controller = entity.get_controller(all_entities, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)  # 获取控制器，传入副本
-		controller = self.entity_instances[str(entity_id)].run(controller)  # 运行玩家实例
+		entity = self.entities[entity_id]  # 获取实体
+		if len(self.available_entities_ids) >= SPATIAL_INDEX_THRESHOLD:
+			controller = entity.get_indexed_controller(self.entity_index, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)
+		else:
+			controller = entity.get_controller(self.entity_infos, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)  # 获取控制器，传入副本
+		returned_controller = self.entity_instances[entity_id].run(controller)  # 运行玩家实例
+		if returned_controller is not controller:
+			raise RuntimeError("Player.run 必须返回引擎提供的 Controller 实例。")
 		self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
 
 	def end_instance_check(self, entity_id: int, controller: Controller) -> None:
-		self.entities[str(entity_id)].info, self.entities[str(entity_id)].cooldown, actions = controller.get_actions()  # 更新本地实体状态
-		local_info = self.entities[str(entity_id)].info
+		self.entities[entity_id].info, self.entities[entity_id].cooldown, actions = controller.get_actions()  # 更新本地实体状态
+		self.entity_index.sync(entity_id)
+		local_info = self.entities[entity_id].info
 		for action in actions:
 			if action[0] == "create":  # 创造新的实体，参数为(type, dir, energy)
-				_ = self.add_entity(action[1][0], action[1][2], local_info.location.add(action[1][1]), local_info.team, local_info.ID)
+				canonical_type = EntityType(action[1][0].name)
+				_ = self.add_entity(canonical_type, action[1][2], local_info.location.add(action[1][1]), local_info.team, local_info.ID)
 			elif action[0] == "charge":  # 充能，参数为 energy
 				self.charge_list.append((entity_id, action[1]))  # 保存id，等到回合结束后比较
 			elif action[0] == "overdrive":  # 过载，参数为 radius
 				self.remove_entity(entity_id)  # 过载后删除本实体
 				# 使用C++引擎计算过载效果
-				ids = list(self.available_entities_ids)
-				infos = [self.entities[str(rid)].info for rid in ids]
 				odfactor = self.get_overdrive_factor(local_info.team)
-				effects = engine_process_overdrive(ids, infos, local_info, action[1], odfactor)
+				effects = engine_process_overdrive(self.available_entities_ids, self.entity_infos, local_info, action[1], odfactor)
 				for rid, new_energy, new_defence, new_team, should_remove in effects:
 					if should_remove:
 						self.remove_entity(rid)
 					else:
-						self.entities[str(rid)].info.energy = new_energy
-						self.entities[str(rid)].info.defence = new_defence
+						self.entities[rid].info.energy = new_energy
+						self.entities[rid].info.defence = new_defence
 						if new_team:  # 队伍转换
-							self.entities[str(rid)].info.team = Team(new_team)
-							self.entity_instances[str(rid)] = self.team_instances[int(new_team)].Player()
+							self.entities[rid].info.team = Team(new_team)
+							self.entity_instances[rid] = self.team_instances[int(new_team)].Player()
+							self.entity_index.sync(rid)
 
 			elif action[0] == "analyze":  # 分析，参数为 target
-				if action[1].type == "miner" and action[1].team != local_info.team:
-					self.remove_entity(action[1].ID)  # 删除实体
-					self.overdrive_factor.append((local_info.team.tag, action[1].energy, self.round + 50))  # 增加增益
+				target = self.entities.get(action[1].ID)
+				if (local_info.type == "scout" and target is not None and
+						target.info.type == "miner" and target.info.team != local_info.team and
+						target.info.location.distance_to(local_info.location) <= local_info.type.action_radius):
+					target_energy = target.info.energy
+					self.remove_entity(target.info.ID)  # 删除实体
+					self.overdrive_factor.append((local_info.team.tag, target_energy, self.round + 50))  # 增加增益
 
 		if local_info.type == "miner":  # 开采舰的场合
-			if self.round >= self.entities[str(entity_id)].created_round + 50:  # 如果已经超过了50回合
-				created_planet_index = str(self.entities[str(entity_id)].created_planet)
+			if self.round >= self.entities[entity_id].created_round + 50:  # 如果已经超过了50回合
+				created_planet_index = self.entities[entity_id].created_planet
 				if self.entities[created_planet_index].info.team == local_info.team:  # 如果母星仍然属于本队
 					self.entities[created_planet_index].info.energy += engine_compute_miner_income(local_info.energy)
 
 	def end_round_check(self) -> None:  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
 		# 使用C++引擎检查存活队伍和开采舰进化
 		ids = list(self.available_entities_ids)
-		team_tags = [self.entities[str(rid)].info.team.tag for rid in ids]
-		type_names = [self.entities[str(rid)].info.type.name for rid in ids]
-		created_rounds = [self.entities[str(rid)].created_round for rid in ids]
+		team_tags = [self.entities[rid].info.team.tag for rid in ids]
+		type_names = [self.entities[rid].info.type.name for rid in ids]
+		created_rounds = [self.entities[rid].created_round for rid in ids]
 		alive_team_tags, evolution_ids = engine_check_round_end(ids, team_tags, type_names, created_rounds, self.round)
 
 		for rid in evolution_ids:
-			self.entities[str(rid)].info.type = EntityType("destroyer")
+			self.entities[rid].info.type = EntityType("destroyer")
 
 		self.new_replay()  # 保存录像
-		if len(alive_team_tags) <= 1:
+		if len(alive_team_tags) == 0:
+			self.end_game("tie", None)
+		elif len(alive_team_tags) == 1:
 			self.end_game("eliminate", int(alive_team_tags[0]))  # 结束游戏
 
 		# 使用C++引擎处理充能
-		charge_team_tags = [self.entities[str(c[0])].info.team.tag for c in self.charge_list]
+		charge_team_tags = [self.entities[c[0]].info.team.tag for c in self.charge_list]
 		winner_team, returns = engine_process_charge(self.charge_list, charge_team_tags)
 		if winner_team >= 0:
 			self.charge_result[winner_team] += 1
 		for eid, energy_return in returns:
-			self.entities[str(eid)].info.energy += energy_return
+			self.entities[eid].info.energy += energy_return
 
 	# 计算比赛结果的方法
 	def counting_result(self) -> None:
@@ -204,7 +227,9 @@ class Instance:
 		else:
 			team_planet_count = [0] * len(self.charge_result)  # 与队伍数等长的对象
 			for p in self.planet_list:
-				team_planet_count[int(self.entities[str(p)].info.team.tag)] += 1
+				team_tag = self.entities[p].info.team.tag
+				if team_tag != "Neutral":
+					team_planet_count[int(team_tag)] += 1
 			most_planet = max(team_planet_count)  # 最多的星球数
 			most_planet_team = []
 			for i, c in enumerate(team_planet_count):  # 遍历
@@ -214,8 +239,9 @@ class Instance:
 				self.end_game("most_planets", most_planet_team[0])
 			else:
 				team_energy_count = [0] * len(self.charge_result)  # 与队伍数等长的对象
-				for e in list(self.entities.values()):
-					team_energy_count[int(e.info.team.tag)] += e.info.energy
+				for e in self.entities.values():
+					if e.info.team != "Neutral":
+						team_energy_count[int(e.info.team.tag)] += e.info.energy
 				most_energy = max(team_energy_count)  # 最多的能量数
 				most_energy_team = []
 				for i, c in enumerate(team_energy_count):  # 遍历
@@ -228,7 +254,7 @@ class Instance:
 
 	# 保存这一回合至回放中
 	def new_replay(self) -> None:
-		self.replay["rounds"].append([self.entities[str(rid)].info.to_dict() for rid in self.available_entities_ids])
+		self.replay["rounds"].append(engine_replay_round(self.entity_infos))
 
 	def save_replay(self) -> None:
 		os.makedirs(os.path.dirname(self.replay_path), exist_ok=True)
@@ -258,24 +284,24 @@ class Instance:
 		team_energy_count = [[0, 0, 0, 0] for _ in self.team_names]
 		neutral_count = 0
 		for eid in self.available_entities_ids:
-			team_tag = self.entities[str(eid)].info.team.tag
+			team_tag = self.entities[eid].info.team.tag
 			if team_tag == "Neutral":
 				neutral_count += 1
 				continue
 			team_tag = int(team_tag)
-			entity_type = self.entities[str(eid)].info.type.name
+			entity_type = self.entities[eid].info.type.name
 			if entity_type == "planet":
 				team_entity_count[team_tag][0] += 1
-				team_energy_count[team_tag][0] += self.entities[str(eid)].info.energy
+				team_energy_count[team_tag][0] += self.entities[eid].info.energy
 			elif entity_type == "destroyer":
 				team_entity_count[team_tag][1] += 1
-				team_energy_count[team_tag][1] += self.entities[str(eid)].info.energy
+				team_energy_count[team_tag][1] += self.entities[eid].info.energy
 			elif entity_type == "miner":
 				team_entity_count[team_tag][2] += 1
-				team_energy_count[team_tag][2] += self.entities[str(eid)].info.energy
+				team_energy_count[team_tag][2] += self.entities[eid].info.energy
 			elif entity_type == "scout":
 				team_entity_count[team_tag][3] += 1
-				team_energy_count[team_tag][3] += self.entities[str(eid)].info.energy
+				team_energy_count[team_tag][3] += self.entities[eid].info.energy
 		
 
 		for t in range(len(self.team_names)):
