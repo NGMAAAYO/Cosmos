@@ -17,6 +17,7 @@ class EngineTestCase(unittest.TestCase):
 			10,
 			debug=True,
 			show_progress=False,
+			player_runtime="python",
 		)
 
 	@staticmethod
@@ -159,6 +160,7 @@ class EngineTestCase(unittest.TestCase):
 			1,
 			debug=True,
 			show_progress=False,
+			player_runtime="python",
 		)
 		game.save_replay = lambda: None
 		with contextlib.redirect_stdout(io.StringIO()):

@@ -21,6 +21,7 @@ def make_game(extra_entities, rounds, seed):
 		rounds,
 		debug=True,
 		show_progress=False,
+		player_runtime="python",
 	)
 	occupied = {
 		(entity.info.location.x, entity.info.location.y)

@@ -49,6 +49,10 @@ Cosmos
 
 在准备好以上步骤以后，运行`main.py`或者`run.cmd`（仅在Windows环境下）即可开始游戏进程。比赛的回放文件将保存在`replays/`文件夹下。
 
+#### WebAssembly 安全模式
+
+`dev` 分支默认使用受限 Python 到 WebAssembly 的玩家运行时。它使用每实体独立实例、确定性指令预算和显式宿主 API，适合运行不受信任的比赛代码。语言子集、依赖、配置和迁移限制见 [WebAssembly 玩家沙箱](docs/wasm_sandbox.md)。原有 `python` 运行时必须显式启用，仅用于兼容调试，不构成安全沙箱。
+
 #### 开发相关链接
 
 - [在线对战平台](https://cosmos.misaka17032.com/)

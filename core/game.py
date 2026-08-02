@@ -13,13 +13,19 @@ from core.cosmos_core import (
 	engine_compute_miner_income, engine_process_charge, engine_check_round_end,
 	engine_replay_round
 )
+from core.wasm_sandbox import SandboxLimits, SandboxTurnAborted, WasmRuntime
 
 SPATIAL_INDEX_THRESHOLD = 128
 
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams: List[str], map_path: str, game_round: int, debug: bool = False, show_progress: bool = True) -> None:
+	def __init__(
+			self, teams: List[str], map_path: str, game_round: int,
+			debug: bool = False, show_progress: bool = True,
+			player_runtime: str = "wasm", wasm_fuel: int = 100_000,
+			wasm_host_calls: int = 10_000, wasm_max_sensed: int = 4_096,
+			sandbox_seed: int = 0, player_root: str = "src") -> None:
 		self.team_names = teams
 		self.game_round = game_round
 		self.show_progress = show_progress
@@ -38,13 +44,33 @@ class Instance:
 		self.replay = {"rounds": []}  # 保存回放的对象。应为{map:[], rounds:[], winner:"", reason:""}
 		self.entity_instances = {}  # 存储实体实例的字典
 		self.team_instances = []
-		for team in teams:  # 导入玩家的代码
-			self.team_instances.append(importlib.import_module(f"src.{team}.main"))
+		self.player_runtime = player_runtime
+		self.sandbox_aborts = {}
+		self.wasm_runtime = None
+		if player_runtime == "python":
+			for team in teams:  # 兼容模式：直接导入玩家代码，不具备安全隔离
+				self.team_instances.append(importlib.import_module(f"src.{team}.main"))
+		elif player_runtime == "wasm":
+			self.wasm_runtime = WasmRuntime(SandboxLimits(
+				fuel_per_turn=wasm_fuel,
+				max_host_calls_per_turn=wasm_host_calls,
+				max_sensed_entities=wasm_max_sensed,
+			), seed=sandbox_seed)
+			for team in teams:  # 只读取源码 AST，不导入或执行玩家 Python
+				self.team_instances.append(self.wasm_runtime.compile_team(team, player_root))
+		else:
+			raise ValueError("player_runtime 必须是 'python' 或 'wasm'。")
 
 		self.init_map(map_path)  # 初始化地图
 		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
 		self.debug = debug
 		self.game_end_flag = False
+
+	def create_player_instance(self, team: Team, entity_id: int):
+		team_factory = self.team_instances[int(team.tag)]
+		if self.player_runtime == "wasm":
+			return team_factory.create_player(entity_id, team.tag)
+		return team_factory.Player()
 
 	# 计算过载系数
 	def get_overdrive_factor(self, team: Team) -> float:
@@ -80,7 +106,7 @@ class Instance:
 		self.entity_infos.append(entity.info)
 		self.entity_index.add(entity.info)
 		if team != "Neutral":
-			self.entity_instances[rid] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
+			self.entity_instances[rid] = self.create_player_instance(team, rid)  # 对应队伍的隔离实例
 		return rid
 
 	def remove_entity(self, entity_id: int) -> None:
@@ -144,7 +170,11 @@ class Instance:
 			controller = entity.get_indexed_controller(self.entity_index, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)
 		else:
 			controller = entity.get_controller(self.entity_infos, self.all_teams, self.charge_result, self.map, self.round, self.overdrive_factor)  # 获取控制器，传入副本
-		returned_controller = self.entity_instances[entity_id].run(controller)  # 运行玩家实例
+		try:
+			returned_controller = self.entity_instances[entity_id].run(controller)  # 运行玩家实例
+		except SandboxTurnAborted:
+			self.sandbox_aborts[entity_id] = self.sandbox_aborts.get(entity_id, 0) + 1
+			return  # 丢弃 Controller 副本，本单位本回合不产生任何动作
 		if returned_controller is not controller:
 			raise RuntimeError("Player.run 必须返回引擎提供的 Controller 实例。")
 		self.end_instance_check(entity_id, controller)  # 玩家行动后进行检查，更新全局与本地实体状态
@@ -172,7 +202,7 @@ class Instance:
 						self.entities[rid].info.defence = new_defence
 						if new_team:  # 队伍转换
 							self.entities[rid].info.team = Team(new_team)
-							self.entity_instances[rid] = self.team_instances[int(new_team)].Player()
+							self.entity_instances[rid] = self.create_player_instance(Team(new_team), rid)
 							self.entity_index.sync(rid)
 
 			elif action[0] == "analyze":  # 分析，参数为 target
