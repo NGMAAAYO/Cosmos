@@ -1,0 +1,16 @@
+diff --git a/nuitka/PythonVersions.py b/nuitka/PythonVersions.py
+--- a/nuitka/PythonVersions.py
++++ b/nuitka/PythonVersions.py
+@@ -477,6 +477,12 @@ def getTkInterVersion():
+ 
+ def getModuleLinkerLibs():
+     """Get static link libraries needed."""
++    # The host Python's MODLIBS describe native linking.  py2wasm links the
++    # bundled wasm32-wasi libpython instead, and wasi-sdk does not ship the
++    # host-only libatomic archive reported by many Linux Python builds.
++    if os.environ.get("PY2WASM_OUTPUT"):
++        return []
++
+     try:
+         import sysconfig
+     except ImportError:

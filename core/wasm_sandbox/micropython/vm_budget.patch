@@ -1,0 +1,12 @@
+diff --git a/py/vm.c b/py/vm.c
+index 23f86e950..b82381fcb 100644
+--- a/py/vm.c
++++ b/py/vm.c
+@@ -323,6 +323,7 @@ outer_dispatch_loop:
+             // loop to execute byte code
+             for (;;) {
+ dispatch_loop:
++                MICROPY_VM_HOOK_DISPATCH
+                 #if MICROPY_OPT_COMPUTED_GOTO
+                 DISPATCH();
+                 #else

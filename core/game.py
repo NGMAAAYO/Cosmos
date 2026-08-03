@@ -13,7 +13,7 @@ from core.cosmos_core import (
 	engine_compute_miner_income, engine_process_charge, engine_check_round_end,
 	engine_replay_round
 )
-from core.wasm_sandbox import SandboxLimits, SandboxTurnAborted, WasmRuntime
+from core.wasm_sandbox import Py2WasmRuntime, SandboxLimits, SandboxTurnAborted, WasmRuntime
 
 SPATIAL_INDEX_THRESHOLD = 128
 
@@ -23,8 +23,9 @@ class Instance:
 	def __init__(
 			self, teams: List[str], map_path: str, game_round: int,
 			debug: bool = False, show_progress: bool = True,
-			player_runtime: str = "wasm", wasm_fuel: int = 100_000,
-			wasm_host_calls: int = 10_000, wasm_max_sensed: int = 4_096,
+			player_runtime: str = "wasm", wasm_fuel: int = 5_000_000,
+			py2wasm_fuel: int = 100_000_000,
+			wasm_host_calls: int = 200_000, wasm_max_sensed: int = 16_384,
 			sandbox_seed: int = 0, player_root: str = "src") -> None:
 		self.team_names = teams
 		self.game_round = game_round
@@ -58,8 +59,18 @@ class Instance:
 			), seed=sandbox_seed)
 			for team in teams:  # 只读取源码 AST，不导入或执行玩家 Python
 				self.team_instances.append(self.wasm_runtime.compile_team(team, player_root))
+		elif player_runtime == "py2wasm":
+			self.wasm_runtime = Py2WasmRuntime(SandboxLimits(
+				fuel_per_turn=py2wasm_fuel,
+				max_host_calls_per_turn=wasm_host_calls,
+				max_sensed_entities=wasm_max_sensed,
+				max_wasm_stack=2 * 1024 * 1024,
+				max_guest_memory=64 * 1024 * 1024,
+			), seed=sandbox_seed)
+			for team in teams:
+				self.team_instances.append(self.wasm_runtime.compile_team(team, player_root))
 		else:
-			raise ValueError("player_runtime 必须是 'python' 或 'wasm'。")
+			raise ValueError("player_runtime 必须是 'python'、'wasm' 或 'py2wasm'。")
 
 		self.init_map(map_path)  # 初始化地图
 		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
@@ -68,7 +79,7 @@ class Instance:
 
 	def create_player_instance(self, team: Team, entity_id: int):
 		team_factory = self.team_instances[int(team.tag)]
-		if self.player_runtime == "wasm":
+		if self.player_runtime in {"wasm", "py2wasm"}:
 			return team_factory.create_player(entity_id, team.tag)
 		return team_factory.Player()
 
@@ -116,7 +127,10 @@ class Instance:
 		self.entity_infos.pop(entity_index)
 		self.deleted_entities_ids.add(entity_id)
 		del self.entities[entity_id]
-		self.entity_instances.pop(entity_id, None)
+		player = self.entity_instances.pop(entity_id, None)
+		close = getattr(player, "close", None)
+		if close is not None:
+			close()
 
 	# 管理全局回合的方法。
 	def run(self) -> Tuple[str, str, str]:
@@ -202,7 +216,12 @@ class Instance:
 						self.entities[rid].info.defence = new_defence
 						if new_team:  # 队伍转换
 							self.entities[rid].info.team = Team(new_team)
-							self.entity_instances[rid] = self.create_player_instance(Team(new_team), rid)
+							new_player = self.create_player_instance(Team(new_team), rid)
+							old_player = self.entity_instances.get(rid)
+							close = getattr(old_player, "close", None)
+							if close is not None:
+								close()
+							self.entity_instances[rid] = new_player
 							self.entity_index.sync(rid)
 
 			elif action[0] == "analyze":  # 分析，参数为 target

@@ -7,6 +7,7 @@ from .runtime import (
 	WasmRuntime,
 	WasmTeam,
 )
+from .py2wasm import Py2WasmPlayer, Py2WasmRuntime, Py2WasmTeam
 
 __all__ = [
 	"SandboxCompileError",
@@ -16,5 +17,8 @@ __all__ = [
 	"WasmPlayer",
 	"WasmRuntime",
 	"WasmTeam",
+	"Py2WasmPlayer",
+	"Py2WasmRuntime",
+	"Py2WasmTeam",
 	"compile_restricted_python",
 ]

@@ -165,6 +165,21 @@ class Player:
 			player.run(controller)
 			self.assertEqual(controller.radio, 2)
 
+	def test_cpython_integer_bit_helpers_are_lowered_for_micropython(self):
+		source = """
+class Player:
+    def run(self, controller):
+        positive = (1 << 63) | (1 << 2)
+        negative = -positive
+        controller.set_radio(positive.bit_length() + negative.bit_count())
+"""
+		with tempfile.TemporaryDirectory() as root:
+			self.write_players(root, {"alpha": source})
+			player = WasmRuntime().compile_team("alpha", root).create_player(1, "0")
+			controller = FakeController()
+			player.run(controller)
+			self.assertEqual(controller.radio, 66)
+
 	def test_fuel_exhaustion_discards_partial_action_and_rolls_back_state(self):
 		looping = """
 class Player:

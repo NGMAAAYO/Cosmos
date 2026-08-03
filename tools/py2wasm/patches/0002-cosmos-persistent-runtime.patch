@@ -1,0 +1,201 @@
+diff --git a/nuitka/__main__.py b/nuitka/__main__.py
+--- a/nuitka/__main__.py
++++ b/nuitka/__main__.py
+@@ -178,5 +178,8 @@ def py2wasm():
+ 
+-    output_dir = os.path.join(os.path.dirname(__file__), "__py2wasm")
++    output_dir = os.environ.get(
++        "PY2WASM_BUILD_DIR",
++        os.path.join(os.path.dirname(__file__), "__py2wasm"),
++    )
+     output_filename = "output.wasm"
+     extra_args = [
+         "--output-dir=%s" % output_dir,
+@@ -189,12 +192,14 @@ def py2wasm():
+         "--standalone",
+         "--static-libpython=yes",
+         "--disable-ccache",
++        "--nofollow-import-to=_cosmos",
+         # "--onefile",
+         "--lto=yes",
+     ] + extra_args
+ 
+     final_output_file = args.output or args.filename.replace(".py", ".wasm")
+     os.environ["PY2WASM_OUTPUT"] = final_output_file
++    os.environ["PY2WASM_COSMOS"] = "1"
+ 
+     main()
+ 
+diff --git a/nuitka/build/Backend.scons b/nuitka/build/Backend.scons
+--- a/nuitka/build/Backend.scons
++++ b/nuitka/build/Backend.scons
+@@ -780,8 +780,8 @@ elif env.static_libpython:
+     if python_prefix_external != "/usr" and "linux" in sys.platform:
+         env.Append(LIBS=["dl", "pthread", "util", "rt", "m"])
+ 
+-        if env.gcc_mode:
++        if env.gcc_mode and not os.environ.get("PY2WASM_COSMOS"):
+             if clang_mode:
+                 env.Append(LINKFLAGS=["-Wl,--export-dynamic"])
+             else:
+                 env.Append(LINKFLAGS=["-export-dynamic"])
+@@ -871,6 +871,9 @@ if module_mode:
+ else:
+     env.Append(CPPDEFINES=["_NUITKA_EXE"])
+ 
++if os.environ.get("PY2WASM_COSMOS"):
++    env.Append(CPPDEFINES=["_NUITKA_COSMOS"])
++
+ 
+ def discoverSourceFiles():
+     result = []
+@@ -891,6 +894,9 @@ def discoverSourceFiles():
+     if not module_mode:
+         static_src_filenames.append("MainProgram.c")
+ 
++    if os.environ.get("PY2WASM_COSMOS"):
++        static_src_filenames.append("CosmosModule.c")
++
+     # Compiled types.
+     static_src_filenames.append("CompiledFunctionType.c")
+ 
+diff --git a/nuitka/build/static_src/CosmosModule.c b/nuitka/build/static_src/CosmosModule.c
+new file mode 100644
+--- /dev/null
++++ b/nuitka/build/static_src/CosmosModule.c
+@@ -0,0 +1,91 @@
++#include <Python.h>
++#include <stdint.h>
++
++#if defined(__wasm__)
++__attribute__((import_module("cosmos"), import_name("call")))
++extern int64_t cosmos_host_call(int32_t opcode, int64_t a, int64_t b, int64_t c);
++
++__attribute__((import_module("cosmos"), import_name("call_float")))
++extern double cosmos_host_call_float(int32_t opcode, int64_t a, int64_t b, int64_t c);
++#else
++#error CosmosModule.c is only supported for WebAssembly builds
++#endif
++
++static PyObject *cosmos_call(PyObject *self, PyObject *args) {
++    int opcode;
++    long long a = 0;
++    long long b = 0;
++    long long c = 0;
++
++    (void)self;
++    if (!PyArg_ParseTuple(args, "i|LLL:call", &opcode, &a, &b, &c)) {
++        return NULL;
++    }
++
++    return PyLong_FromLongLong(cosmos_host_call(opcode, a, b, c));
++}
++
++static PyObject *cosmos_call_float(PyObject *self, PyObject *args) {
++    int opcode;
++    long long a = 0;
++    long long b = 0;
++    long long c = 0;
++
++    (void)self;
++    if (!PyArg_ParseTuple(args, "i|LLL:call_float", &opcode, &a, &b, &c)) {
++        return NULL;
++    }
++
++    return PyFloat_FromDouble(cosmos_host_call_float(opcode, a, b, c));
++}
++
++static PyMethodDef cosmos_methods[] = {
++    {"call", cosmos_call, METH_VARARGS, NULL},
++    {"call_float", cosmos_call_float, METH_VARARGS, NULL},
++    {NULL, NULL, 0, NULL},
++};
++
++static struct PyModuleDef cosmos_module = {
++    PyModuleDef_HEAD_INIT,
++    "_cosmos",
++    NULL,
++    -1,
++    cosmos_methods,
++};
++
++PyMODINIT_FUNC PyInit__cosmos(void) {
++    return PyModule_Create(&cosmos_module);
++}
++
++int cosmos_register_module(void) {
++    return PyImport_AppendInittab("_cosmos", PyInit__cosmos);
++}
++
++__attribute__((export_name("cosmos_turn")))
++int32_t cosmos_turn(void) {
++    PyObject *main_module = PyImport_AddModule("__main__");
++    PyObject *turn;
++    PyObject *result;
++
++    if (main_module == NULL) {
++        PyErr_Clear();
++        return 1;
++    }
++
++    turn = PyObject_GetAttrString(main_module, "__cosmos_turn");
++    if (turn == NULL || !PyCallable_Check(turn)) {
++        Py_XDECREF(turn);
++        PyErr_Clear();
++        return 2;
++    }
++
++    result = PyObject_CallNoArgs(turn);
++    Py_DECREF(turn);
++    if (result == NULL) {
++        PyErr_Clear();
++        return 3;
++    }
++
++    Py_DECREF(result);
++    return 0;
++}
+diff --git a/nuitka/build/static_src/MainProgram.c b/nuitka/build/static_src/MainProgram.c
+--- a/nuitka/build/static_src/MainProgram.c
++++ b/nuitka/build/static_src/MainProgram.c
+@@ -1108,6 +1108,10 @@ static void changeStandardHandleTarget(FILE *std_handle, filename_char_t const *
+ static void Nuitka_at_exit(void) { NUITKA_PRINT_TIMING("Nuitka_at_exit(): Called by C exit()"); }
+ #endif
+ 
++#ifdef _NUITKA_COSMOS
++extern int cosmos_register_module(void);
++#endif
++
+ #ifdef _NUITKA_WINMAIN_ENTRY_POINT
+ int __stdcall wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, wchar_t *lpCmdLine, int nCmdShow) {
+     /* MSVC, MINGW64 */
+@@ -1312,6 +1316,13 @@ orig_argv = argv;
+     }
+ #endif
+ 
++    /* Register the capability-only Cosmos host module before CPython starts. */
++#ifdef _NUITKA_COSMOS
++    if (cosmos_register_module() != 0) {
++        return 1;
++    }
++#endif
++
+     /* Initialize the embedded CPython interpreter. */
+     NUITKA_PRINT_TIMING("main(): Calling Nuitka_Py_Initialize to initialize interpreter.");
+     Nuitka_Py_Initialize();
+@@ -1640,10 +1651,15 @@ orig_argv = argv;
+     int exit_code = HANDLE_PROGRAM_EXIT(tstate);
+ 
+     NUITKA_PRINT_TIMING("main(): Calling Py_Exit.");
++#ifdef _NUITKA_COSMOS
++    /* Keep the initialized interpreter alive for exported turn calls. */
++    return exit_code;
++#else
+     Py_Exit(exit_code);
+ 
+     // The "Py_Exit()" calls is not supposed to return.
+     NUITKA_CANNOT_GET_HERE("Py_Exit does not return");
++#endif
+ }
+ 
+ /* This is an unofficial API, not available on Windows, but on Linux and others

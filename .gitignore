@@ -5,6 +5,8 @@ src/
 !src/example/
 !src/template.py
 replays/
+.cache/py2wasm/
+.cache/cosmos-py2wasm-artifacts/
 
 # C++ build artifacts
 core/build/
