@@ -2,9 +2,9 @@
 	"rounds": 1000,
 	"map": "fang",
 	"players": [
-		"example",
-		"example"
+		"codex",
+		"youmu"
 	],
 	"debug": true,
-	"parallel_cores": 1
+	"parallel_cores": 16
 }

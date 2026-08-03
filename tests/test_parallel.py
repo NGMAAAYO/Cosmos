@@ -83,8 +83,8 @@ class ParallelGameTestCase(unittest.TestCase):
 	def test_parallel_snapshot_includes_neutral_map_team(self):
 		random.seed(161803)
 		game = Instance(
-			["noact", "noact", "noact", "noact"],
-			"maps/multi_square_x64_4.json",
+			["noact", "noact"],
+			"maps/crown.json",
 			1,
 			debug=True,
 			show_progress=False,

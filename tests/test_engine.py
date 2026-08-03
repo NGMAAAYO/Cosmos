@@ -266,8 +266,8 @@ class EngineTestCase(unittest.TestCase):
 	def test_neutral_planets_do_not_break_final_counting(self):
 		random.seed(13579)
 		game = Instance(
-			["noact", "noact", "noact", "noact"],
-			"maps/multi_square_x64_4.json",
+			["noact", "noact"],
+			"maps/crown.json",
 			1,
 			debug=True,
 			show_progress=False,

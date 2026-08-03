@@ -17,7 +17,7 @@ def make_game(extra_entities, rounds, seed, parallel_cores=1, players=None):
 	random.seed(seed)
 	game = Instance(
 		players or ["noact", "noact"],
-		"maps/huge_square_x64.json",
+		"maps/bastion.json",
 		rounds,
 		debug=True,
 		show_progress=False,

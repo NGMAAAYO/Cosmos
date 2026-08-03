@@ -125,6 +125,12 @@ class DesignedMapTestCase(unittest.TestCase):
                     self.assertIn((planet["x"], planet["y"]), reachable)
                 self.assertEqual(self.articulation_points(grid, (width, height)), set())
 
+    def test_map_directory_contains_only_supported_maps(self):
+        expected = {f"{name}.json" for name in DESIGNED_MAPS}
+        expected.add("maptestsmall.json")
+        actual = {path.name for path in MAP_ROOT.glob("*.json")}
+        self.assertEqual(actual, expected)
+
     def test_map_objective_layouts_match_their_categories(self):
         for name in ("fang", "bastion"):
             self.assertFalse(any(p["team"] == "Neutral" for p in self.load_map(name)["planets"]))
