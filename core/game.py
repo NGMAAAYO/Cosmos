@@ -16,6 +16,8 @@ from core.cosmos_core import (
 )
 
 SPATIAL_INDEX_THRESHOLD = 128
+MINER_MINING_START_AGE = 50
+SCOUT_BOOST_DURATION = 50
 
 
 # 定义比赛示例的类
@@ -329,7 +331,11 @@ class Instance:
 				self.remove_entity(target.info.ID)
 				info.defence -= 10
 				entity.cooldown += cooldown_cost
-				self.overdrive_factor.append((info.team.tag, target_energy, self.round + 50))
+				self.overdrive_factor.append((
+					info.team.tag,
+					target_energy,
+					self.round + SCOUT_BOOST_DURATION,
+				))
 
 		elif action is not None and action[0] == "overdrive":
 			radius = int(action[1])
@@ -357,11 +363,12 @@ class Instance:
 
 		if (
 			info.type.name == "miner"
-			and self.round >= entity.created_round + 50
+			and self.round >= entity.created_round + MINER_MINING_START_AGE
 		):
 			created_planet = self.entities.get(entity.created_planet)
 			if created_planet is not None and created_planet.info.team == info.team:
-				created_planet.info.energy += engine_compute_miner_income(info.energy)
+				age = self.round - entity.created_round
+				created_planet.info.energy += engine_compute_miner_income(info.energy, age)
 
 	def close(self) -> None:
 		if self._parallel_runtime is not None:
@@ -418,13 +425,18 @@ class Instance:
 						target.info.location.distance_to(local_info.location) <= local_info.type.action_radius):
 					target_energy = target.info.energy
 					self.remove_entity(target.info.ID)  # 删除实体
-					self.overdrive_factor.append((local_info.team.tag, target_energy, self.round + 50))  # 增加增益
+					self.overdrive_factor.append((
+						local_info.team.tag,
+						target_energy,
+						self.round + SCOUT_BOOST_DURATION,
+					))  # 增加增益
 
 		if local_info.type == "miner":  # 开采舰的场合
-			if self.round >= self.entities[entity_id].created_round + 50:  # 如果已经超过了50回合
+			if self.round >= self.entities[entity_id].created_round + MINER_MINING_START_AGE:  # 如果已经超过了50回合
 				created_planet_index = self.entities[entity_id].created_planet
 				if self.entities[created_planet_index].info.team == local_info.team:  # 如果母星仍然属于本队
-					self.entities[created_planet_index].info.energy += engine_compute_miner_income(local_info.energy)
+					age = self.round - self.entities[entity_id].created_round
+					self.entities[created_planet_index].info.energy += engine_compute_miner_income(local_info.energy, age)
 
 	def end_round_check(self) -> None:  # 处理开采舰是否进化、计算充能，判断游戏是否结束。
 		# 使用C++引擎检查存活队伍和开采舰进化

@@ -14,6 +14,9 @@
 namespace py = pybind11;
 
 constexpr double MIN_AETHER_DENSITY = 0.0001;
+constexpr int MINER_MINING_START_AGE = 50;
+constexpr int MINER_EVOLUTION_AGE = 300;
+constexpr double SCOUT_BOOST_ENERGY_BUDGET = 1000.0;
 
 // ======================== Direction ========================
 class Direction {
@@ -387,7 +390,9 @@ public:
             if (team.tag == tag && expire_round > round_count_ + round)
                 index += energy;
         }
-        return std::pow(1.001, std::min(1145.0, index));
+        return std::exp2(
+            std::min(SCOUT_BOOST_ENERGY_BUDGET, index) /
+            SCOUT_BOOST_ENERGY_BUDGET);
     }
 
     int get_defence() const { return info_.defence; }
@@ -892,7 +897,9 @@ double engine_get_overdrive_factor(
         if (tag == team_tag && expire_round > current_round)
             index += energy;
     }
-    return std::pow(1.001, std::min(1145.0, index));
+    return std::exp2(
+        std::min(SCOUT_BOOST_ENERGY_BUDGET, index) /
+        SCOUT_BOOST_ENERGY_BUDGET);
 }
 
 // Process overdrive effects on all available entities
@@ -972,9 +979,20 @@ py::list engine_process_overdrive(
     return results;
 }
 
-// Compute miner income for the mother planet
-int engine_compute_miner_income(int energy) {
-    return (int)std::floor((0.02 + 0.03 * std::exp(-0.001 * energy)) * energy);
+// Compute this round's miner income for the mother planet.
+// Mining starts at age 50, pays through age 300 (inclusive), and the cumulative
+// lifetime payout is floor(251 * energy / 300).  The reproduction ratio is
+// therefore always below one, so mining cannot create a self-sustaining
+// exponential economy without outside income.
+int engine_compute_miner_income(int energy, int age) {
+    if (energy <= 0 || age < MINER_MINING_START_AGE || age > MINER_EVOLUTION_AGE)
+        return 0;
+
+    long long current_ticks = static_cast<long long>(age - MINER_MINING_START_AGE + 1);
+    long long previous_ticks = current_ticks - 1;
+    long long current_total = current_ticks * energy / MINER_EVOLUTION_AGE;
+    long long previous_total = previous_ticks * energy / MINER_EVOLUTION_AGE;
+    return static_cast<int>(current_total - previous_total);
 }
 
 // Serialize a replay frame in one C++/Python boundary crossing.
@@ -1054,7 +1072,8 @@ py::tuple engine_check_round_end(
             alive_teams.append(py::str(team_tags[i]));
         }
         // Miner evolution
-        if (type_names[i] == "miner" && current_round >= created_rounds[i] + 300) {
+        if (type_names[i] == "miner" &&
+            current_round >= created_rounds[i] + MINER_EVOLUTION_AGE) {
             evolutions.append(entity_ids[i]);
         }
     }
@@ -1264,7 +1283,7 @@ PYBIND11_MODULE(cosmos_core, m) {
           py::arg("entity_ids"), py::arg("entity_infos"), py::arg("attacker"),
           py::arg("radius"), py::arg("odfactor"));
     m.def("engine_compute_miner_income", &engine_compute_miner_income,
-          py::arg("energy"));
+          py::arg("energy"), py::arg("age"));
     m.def("engine_replay_round", &engine_replay_round,
           py::arg("entity_infos"));
     m.def("engine_process_charge", &engine_process_charge,

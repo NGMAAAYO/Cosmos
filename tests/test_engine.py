@@ -4,7 +4,13 @@ import random
 import unittest
 
 from core import Direction, EntityType, Map, MapLocation, Team
-from core.cosmos_core import engine_check_round_end, engine_process_charge, engine_replay_round
+from core.cosmos_core import (
+	engine_check_round_end,
+	engine_compute_miner_income,
+	engine_get_overdrive_factor,
+	engine_process_charge,
+	engine_replay_round,
+)
 from core.game import Instance
 
 
@@ -181,6 +187,56 @@ class EngineTestCase(unittest.TestCase):
 		)
 		self.assertEqual(winner, -1)
 		self.assertEqual(returns, [(101, 5), (201, 5)])
+
+	def test_miner_income_is_subcritical_and_paid_by_age(self):
+		for energy in (1, 2, 20, 21, 50, 100, 150, 300, 1000, 2000):
+			with self.subTest(energy=energy):
+				self.assertEqual(engine_compute_miner_income(energy, 49), 0)
+				self.assertEqual(engine_compute_miner_income(energy, 301), 0)
+				lifetime_income = sum(
+					engine_compute_miner_income(energy, age)
+					for age in range(50, 301)
+				)
+				self.assertEqual(lifetime_income, 251 * energy // 300)
+				self.assertLess(lifetime_income, energy)
+
+		for energy in range(1, 500):
+			current = 251 * energy // 300
+			next_value = 251 * (energy + 1) // 300
+			self.assertIn(next_value - current, (0, 1))
+
+	def test_scout_boost_uses_one_planet_cycle_and_caps_at_two(self):
+		active_until = 100
+		self.assertAlmostEqual(
+			engine_get_overdrive_factor([("0", 100, active_until)], "0", 1),
+			2 ** 0.1,
+		)
+		self.assertAlmostEqual(
+			engine_get_overdrive_factor([("0", 500, active_until)], "0", 1),
+			2 ** 0.5,
+		)
+		self.assertEqual(
+			engine_get_overdrive_factor([("0", 1000, active_until)], "0", 1),
+			2.0,
+		)
+		self.assertEqual(
+			engine_get_overdrive_factor([("0", 5000, active_until)], "0", 1),
+			2.0,
+		)
+		self.assertEqual(
+			engine_get_overdrive_factor([("0", 1000, 1)], "0", 1),
+			1.0,
+		)
+
+		game = self.make_game()
+		game.round = 1
+		game.overdrive_factor = [("0", 1000, active_until)]
+		team_zero_planet = next(
+			entity_id for entity_id in game.available_entities_ids
+			if game.entities[entity_id].info.team == Team("0")
+		)
+		controller = self.controller_for(game, team_zero_planet)
+		self.assertEqual(controller.get_overdrive_factor(Team("0")), 2.0)
 
 	def test_map_aether_density_is_clamped_to_minimum(self):
 		game_map = Map(

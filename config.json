@@ -1,11 +1,9 @@
 {
-	"rounds": 2000,
-	"map": "multi_square_x100_4",
+	"rounds": 1000,
+	"map": "fang",
 	"players": [
-		"youmu",
-		"youmu",
-		"codex",
-		"codex"
+		"example",
+		"example"
 	],
 	"debug": true,
 	"parallel_cores": 1
