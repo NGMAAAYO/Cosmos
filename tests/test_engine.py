@@ -3,8 +3,8 @@ import io
 import random
 import unittest
 
-from core import Direction, EntityType, MapLocation, Team
-from core.cosmos_core import engine_check_round_end, engine_replay_round
+from core import Direction, EntityType, Map, MapLocation, Team
+from core.cosmos_core import engine_check_round_end, engine_process_charge, engine_replay_round
 from core.game import Instance
 
 
@@ -139,6 +139,62 @@ class EngineTestCase(unittest.TestCase):
 		self.assertNotIn(near_miner_id, game.entities)
 		self.assertIn(far_miner_id, game.entities)
 		self.assertEqual(game.overdrive_factor[-1][1], 30)
+
+	def test_scout_needs_ten_defence_to_analyze_and_can_be_recharged(self):
+		game = self.make_game()
+		x, y = self.empty_line(game)
+		destroyer_id = game.add_entity(EntityType("destroyer"), 100, MapLocation(x, y), Team("0"))
+		scout_id = game.add_entity(EntityType("scout"), 100, MapLocation(x + 1, y), Team("0"))
+		miner_id = game.add_entity(EntityType("miner"), 30, MapLocation(x + 2, y), Team("1"))
+		game.entities[destroyer_id].cooldown = 0
+		game.entities[scout_id].cooldown = 0
+
+		game.entities[scout_id].info.defence = 9
+		depleted = self.controller_for(game, scout_id)
+		self.assertFalse(depleted.can_analyze(miner_id))
+		with self.assertRaises(RuntimeError):
+			depleted.analyze(miner_id)
+
+		overdrive = self.controller_for(game, destroyer_id)
+		overdrive.overdrive(1)
+		game.end_instance_check(destroyer_id, overdrive)
+		self.assertGreaterEqual(game.entities[scout_id].info.defence, 10)
+		self.assertTrue(self.controller_for(game, scout_id).can_analyze(miner_id))
+
+		game.entities[scout_id].info.defence = 10
+		recharged = self.controller_for(game, scout_id)
+		self.assertTrue(recharged.can_analyze(miner_id))
+		recharged.analyze(miner_id)
+		self.assertEqual(recharged.get_defence(), 0)
+
+	def test_same_team_planets_tied_for_highest_charge_win_together(self):
+		winner, returns = engine_process_charge(
+			[(101, 10), (102, 10), (201, 9)],
+			["0", "0", "1"],
+		)
+		self.assertEqual(winner, 0)
+		self.assertEqual(returns, [(201, 4)])
+
+		winner, returns = engine_process_charge(
+			[(101, 10), (201, 10)],
+			["0", "1"],
+		)
+		self.assertEqual(winner, -1)
+		self.assertEqual(returns, [(101, 5), (201, 5)])
+
+	def test_map_aether_density_is_clamped_to_minimum(self):
+		game_map = Map(
+			[
+				{"x": 0, "y": 0, "aether": 0.0},
+				{"x": 1, "y": 0, "aether": -1.0},
+				{"x": 0, "y": 1, "aether": 0.5},
+			],
+			(2, 2),
+		)
+		self.assertEqual(game_map.get_aether(0, 0), 0.0001)
+		self.assertEqual(game_map.get_aether(1, 0), 0.0001)
+		self.assertEqual(game_map.get_aether(1, 1), 0.0001)
+		self.assertEqual(game_map.get_aether(0, 1), 0.5)
 
 	def test_neutral_entities_do_not_count_as_surviving_players(self):
 		alive, evolutions = engine_check_round_end(

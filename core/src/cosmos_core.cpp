@@ -13,6 +13,8 @@
 
 namespace py = pybind11;
 
+constexpr double MIN_AETHER_DENSITY = 0.0001;
+
 // ======================== Direction ========================
 class Direction {
 public:
@@ -228,12 +230,12 @@ public:
         : width(std::get<0>(map_size)), height(std::get<1>(map_size)), dx(dx), dy(dy) {
         content.resize(width);
         for (int i = 0; i < width; i++) {
-            content[i].resize(height, 0.0);
+            content[i].resize(height, MIN_AETHER_DENSITY);
         }
         for (auto& block : aether_dense) {
             int bx = block["x"].cast<int>();
             int by = block["y"].cast<int>();
-            double aether = block["aether"].cast<double>();
+            double aether = std::max(MIN_AETHER_DENSITY, block["aether"].cast<double>());
             if (bx >= 0 && bx < width && by >= 0 && by < height)
                 content[bx][by] = aether;
         }
@@ -526,7 +528,7 @@ public:
     }
 
     bool can_analyze_by_id(int rid) const {
-        if (info_.type.name != "scout" || !is_ready()) return false;
+        if (info_.type.name != "scout" || info_.defence < 10 || !is_ready()) return false;
         ensure_sensed_index();
         auto it = sensed_by_id_.find(rid);
         if (it == sensed_by_id_.end()) return false;
@@ -536,7 +538,7 @@ public:
     }
 
     bool can_analyze_by_loc(const MapLocation& loc) const {
-        if (info_.type.name != "scout" || !is_ready()) return false;
+        if (info_.type.name != "scout" || info_.defence < 10 || !is_ready()) return false;
         ensure_sensed_index();
         auto it = sensed_by_location_.find(location_key(loc));
         if (it == sensed_by_location_.end()) return false;
@@ -993,6 +995,8 @@ py::tuple engine_process_charge(
     py::list returns;
     if (charge_list.empty())
         return py::make_tuple(-1, returns);
+    if (charge_list.size() != charge_team_tags.size())
+        throw std::runtime_error("充能星球与队伍信息数量不匹配。");
 
     int max_energy = -1;
     for (auto& [id, e] : charge_list)
@@ -1004,11 +1008,15 @@ py::tuple engine_process_charge(
             max_planets.push_back((int)i);
     }
 
-    if (max_planets.size() == 1) {
-        int winner_idx = max_planets[0];
-        int winner_team = std::stoi(charge_team_tags[winner_idx]);
+    const std::string& winning_team_tag = charge_team_tags[max_planets.front()];
+    bool same_winning_team = std::all_of(
+        max_planets.begin(), max_planets.end(),
+        [&](int index) { return charge_team_tags[index] == winning_team_tag; });
+
+    if (same_winning_team) {
+        int winner_team = std::stoi(winning_team_tag);
         for (size_t i = 0; i < charge_list.size(); i++) {
-            if ((int)i != winner_idx)
+            if (charge_list[i].second != max_energy)
                 returns.append(py::make_tuple(charge_list[i].first, (int)std::floor(charge_list[i].second / 2.0)));
         }
         return py::make_tuple(winner_team, returns);
