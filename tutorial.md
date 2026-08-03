@@ -23,7 +23,7 @@
 ```json
 {
 	"rounds": 1000,
-	"map": "maptestsmall",
+	"map": "fang",
 	"players": [
 		"example",
 		"example"
@@ -32,7 +32,7 @@
 }
 ```
 
-这将会在名为 `maptestsmall` 的地图上运行一次一共 1000 回合的比赛，其中双方都使用名为 `example` 的代码策略。
+这将会在名为 `fang` 的地图上运行一次一共 1000 回合的比赛，其中双方都使用名为 `example` 的代码策略。
 
 debug 参数被设为 `true` 后，我们的代码如果有任何语法错误或者运行时错误，将会打印完整信息并且中断比赛。与此同时，游戏的随机种子将会固定，这意味着对于相同的代码，无论何时运行都会用相同的输出。
 
@@ -106,8 +106,8 @@ class Player(template.Player):
 
 ```json
 {
-	"rounds": 500,
-	"map": "maptestsmall",
+	"rounds": 1000,
+	"map": "fang",
 	"players": [
 		"baseline1",
 		"example"
@@ -341,7 +341,7 @@ def run_miner(self):
 ```json
 {
 	"rounds": 1000,
-	"map": "maptestsmall",
+	"map": "fang",
 	"players": [
 		"baseline1",
 		"example"
