@@ -263,7 +263,7 @@ def run_scout(self):
 			if self.controller.can_analyze(entity.location):
 				self.controller.analyze(entity.location)
 				return  # 如果直接分析成功，则进入冷却，可以直接跳过回合
-			# 如果不能分析，那么说明要么自身在冷却中或者距离不够
+			# 如果不能分析，说明自身可能在冷却中、防护值不足10或者距离不够
 			# 我们直接向敌人的方向接近
 			d = self.controller.get_location().direction_to(entity.location)
 			if self.controller.can_move(d):
@@ -494,7 +494,7 @@ class Player(template.Player):
 				if self.controller.can_analyze(entity.location):
 					self.controller.analyze(entity.location)
 					return  # 如果直接分析成功，则进入冷却，可以直接跳过回合
-				# 如果不能分析，那么说明要么自身在冷却中或者距离不够
+				# 如果不能分析，说明自身可能在冷却中、防护值不足10或者距离不够
 				# 我们直接向敌人的方向接近
 				d = self.controller.get_location().direction_to(entity.location)
 				if self.controller.can_move(d):

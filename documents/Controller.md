@@ -126,7 +126,7 @@ from core.entity import Controller
 
 #### def sense_aether(self, loc: [MapLocation](MapLocation.md)) -> int:
 
-> 感知指定位置的以太密度。指定的位置必须在感知范围内
+> 感知指定位置的以太密度。指定的位置必须在感知范围内；返回的以太密度最低为`0.0001`
 
 #### def can_charge(self, energy: int) -> bool:
 
@@ -142,7 +142,7 @@ from core.entity import Controller
 
 #### def can_analyze(self, arg: Union[int, [MapLocation](MapLocation.md)]) -> bool:
 
-> 检查是否可以分析指定`id`或`位置`的实体
+> 检查是否可以分析指定`id`或`位置`的实体。侦查舰当前防护值必须不少于`10`
 
 #### def can_move(self, dir: [Direction](Direction.md)) -> bool:
 
@@ -166,7 +166,7 @@ from core.entity import Controller
 
 #### def analyze(self, arg: Union[int, [MapLocation](MapLocation.md)]) -> Optional[[EntityInfo](EntityInfo.md)]:
 
-> 分析指定`id`或`位置`的实体
+> 消耗`10`点防护值，分析指定`id`或`位置`的实体。防护值低于`10`时无法执行；之后若被友方过载恢复到`10`或以上，则可以再次分析
 
 #### def move(self, dir: [Direction](Direction.md)):
 
