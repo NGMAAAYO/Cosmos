@@ -1,9 +1,12 @@
 {
-	"rounds": 1000,
-	"map": "maptestsmall",
+	"rounds": 2000,
+	"map": "multi_square_x100_4",
 	"players": [
-		"example",
-		"example"
+		"youmu",
+		"youmu",
+		"codex",
+		"codex"
 	],
-	"debug": true
+	"debug": true,
+	"parallel_cores": 1
 }

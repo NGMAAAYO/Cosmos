@@ -1,4 +1,5 @@
 import importlib
+import hashlib
 import random
 import math
 import time
@@ -19,10 +20,17 @@ SPATIAL_INDEX_THRESHOLD = 128
 
 # 定义比赛示例的类
 class Instance:
-	def __init__(self, teams: List[str], map_path: str, game_round: int, debug: bool = False, show_progress: bool = True) -> None:
+	def __init__(self, teams: List[str], map_path: str, game_round: int, debug: bool = False, show_progress: bool = True, parallel_cores: int = 1) -> None:
 		self.team_names = teams
 		self.game_round = game_round
 		self.show_progress = show_progress
+		try:
+			requested_cores = int(parallel_cores)
+		except (TypeError, ValueError) as exc:
+			raise ValueError("parallel_cores 必须是正整数。") from exc
+		if requested_cores < 1:
+			raise ValueError("parallel_cores 必须是正整数。")
+		self.parallel_cores = min(requested_cores, os.cpu_count() or 1)
 		self.round = 0
 		self.map = None
 		self.entities = {}  # 所有的实体
@@ -37,11 +45,20 @@ class Instance:
 		self.all_teams = []
 		self.replay = {"rounds": []}  # 保存回放的对象。应为{map:[], rounds:[], winner:"", reason:""}
 		self.entity_instances = {}  # 存储实体实例的字典
+		self.entity_generations = {}
+		self._next_entity_generation = 0
+		self._parallel_runtime = None
 		self.team_instances = []
-		for team in teams:  # 导入玩家的代码
-			self.team_instances.append(importlib.import_module(f"src.{team}.main"))
+		if self.parallel_cores == 1:
+			for team in teams:  # 单核模式保留原有的主进程导入与执行行为
+				self.team_instances.append(importlib.import_module(f"src.{team}.main"))
 
 		self.init_map(map_path)  # 初始化地图
+		seed_material = repr(random.getstate()).encode("utf-8")
+		self._parallel_seed = int.from_bytes(
+			hashlib.blake2b(seed_material, digest_size=8, person=b"cosmos-mp").digest(),
+			"little",
+		)
 		self.replay_path = "./replays/replays-{}.rpl".format(int(time.time()))  # 回放存储的位置
 		self.debug = debug
 		self.game_end_flag = False
@@ -76,10 +93,12 @@ class Instance:
 
 		entity = Entity(entity_type, energy, location, team, self.round, planet, rid)
 		self.entities[rid] = entity  # 添加新的实体
+		self._next_entity_generation += 1
+		self.entity_generations[rid] = self._next_entity_generation
 		self.available_entities_ids.append(rid)
 		self.entity_infos.append(entity.info)
 		self.entity_index.add(entity.info)
-		if team != "Neutral":
+		if team != "Neutral" and self.parallel_cores == 1:
 			self.entity_instances[rid] = self.team_instances[int(team.tag)].Player()  # 对应队伍的实例
 		return rid
 
@@ -91,6 +110,13 @@ class Instance:
 		self.deleted_entities_ids.add(entity_id)
 		del self.entities[entity_id]
 		self.entity_instances.pop(entity_id, None)
+		self.entity_generations.pop(entity_id, None)
+
+	def _reset_entity_player(self, entity_id: int, team_tag: str) -> None:
+		self._next_entity_generation += 1
+		self.entity_generations[entity_id] = self._next_entity_generation
+		if self.parallel_cores == 1:
+			self.entity_instances[entity_id] = self.team_instances[int(team_tag)].Player()
 
 	# 管理全局回合的方法。
 	def run(self) -> Tuple[str, str, str]:
@@ -99,16 +125,18 @@ class Instance:
 		if self.show_progress:
 			looper = tqdm(looper)
 			
-		for _ in looper:  # 执行回合循环
-			if self.show_progress:
-				looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
-			self.next_round()
-			if self.game_end_flag:
-				return self.replay["winner"], self.replay["reason"], self.replay_path
+		try:
+			for _ in looper:  # 执行回合循环
+				if self.show_progress:
+					looper.set_postfix_str("Entity: {}".format(len(self.available_entities_ids)))
+				self.next_round()
+				if self.game_end_flag:
+					return self.replay["winner"], self.replay["reason"], self.replay_path
 
-		self.counting_result()  # 统计比赛数据
-
-		return self.replay["winner"], self.replay["reason"], self.replay_path
+			self.counting_result()  # 统计比赛数据
+			return self.replay["winner"], self.replay["reason"], self.replay_path
+		finally:
+			self.close()
 
 	def next_round(self) -> None:
 		self.round += 1
@@ -124,19 +152,227 @@ class Instance:
 			if self.entities[p].info.team != "Neutral":
 				self.entities[p].info.energy += math.ceil(0.2 * math.sqrt(self.round))  # 给每个星球增加资源点
 
-		for rid in self.available_entities_ids.copy():  # 分别运行还在场上的所有实体
-			if rid in self.deleted_entities_ids:  # 如果实体已经被删除
-				continue
-			if self.entities[rid].info.team != "Neutral":  # 忽略中立的实体
-				self.entities[rid].cooldown = max(self.entities[rid].cooldown-1, 0)  # 减少冷却
-				if self.debug:
-					self.run_instance(rid)
-				else:
-					try:
+		if self.parallel_cores == 1:
+			for rid in self.available_entities_ids.copy():  # 分别运行还在场上的所有实体
+				if rid in self.deleted_entities_ids:  # 如果实体已经被删除
+					continue
+				if self.entities[rid].info.team != "Neutral":  # 忽略中立的实体
+					self.entities[rid].cooldown = max(self.entities[rid].cooldown-1, 0)  # 减少冷却
+					if self.debug:
 						self.run_instance(rid)
-					except Exception as err:
-						print("[Team {}] {}".format(self.entities[rid].info.team, err))
+					else:
+						try:
+							self.run_instance(rid)
+						except Exception as err:
+							print("[Team {}] {}".format(self.entities[rid].info.team, err))
+		else:
+			self._run_parallel_decisions()
 		self.end_round_check()  # 一轮最末尾进行检查，判断游戏是否结束，计算全局变量
+
+	def _ensure_parallel_runtime(self):
+		if self._parallel_runtime is None:
+			from core.parallel import PersistentDecisionWorkers
+			self._parallel_runtime = PersistentDecisionWorkers(
+				self,
+				self.parallel_cores,
+				self._parallel_seed,
+			)
+		return self._parallel_runtime
+
+	def _run_parallel_decisions(self) -> None:
+		round_entity_ids = self.available_entities_ids.copy()
+		runnable_ids = []
+		for entity_id in round_entity_ids:
+			entity = self.entities[entity_id]
+			if entity.info.team == "Neutral":
+				continue
+			entity.cooldown = max(entity.cooldown - 1, 0)
+			runnable_ids.append(entity_id)
+
+		if not runnable_ids:
+			return
+		decisions = self._ensure_parallel_runtime().decide(self, runnable_ids)
+		occupied = {
+			(entity.info.location.x, entity.info.location.y): entity_id
+			for entity_id, entity in self.entities.items()
+		}
+		for entity_id in round_entity_ids:
+			decision = decisions.get(entity_id)
+			if decision is None:
+				continue
+			if decision.error:
+				message = decision.error.rstrip().splitlines()[-1]
+				if self.debug:
+					raise RuntimeError(
+						"[Team {}] {}".format(decision.team_code, decision.error.rstrip()),
+					)
+				print("[Team {}] {}".format(decision.team_code, message))
+				continue
+			self._commit_parallel_decision(decision, occupied)
+
+	@staticmethod
+	def _valid_direction(dx: int, dy: int) -> bool:
+		return -1 <= dx <= 1 and -1 <= dy <= 1 and (dx != 0 or dy != 0)
+
+	def _same_parallel_actor(self, decision) -> bool:
+		entity = self.entities.get(decision.entity_id)
+		if entity is None:
+			return False
+		return (
+			decision.round_number == self.round
+			and self.entity_generations.get(decision.entity_id) == decision.generation
+			and entity.info.team.tag == str(decision.team_code)
+			and entity.info.type.name == decision.entity_type
+		)
+
+	def _remove_occupied(self, occupied, entity_id: int) -> None:
+		entity = self.entities.get(entity_id)
+		if entity is None:
+			return
+		location = (entity.info.location.x, entity.info.location.y)
+		if occupied.get(location) == entity_id:
+			occupied.pop(location, None)
+
+	def _execute_parallel_overdrive(self, entity_id: int, radius: int, occupied) -> None:
+		entity = self.entities[entity_id]
+		attacker = entity.info.copy()
+		odfactor = self.get_overdrive_factor(attacker.team)
+		self._remove_occupied(occupied, entity_id)
+		self.remove_entity(entity_id)
+		effects = engine_process_overdrive(
+			self.available_entities_ids,
+			self.entity_infos,
+			attacker,
+			radius,
+			odfactor,
+		)
+		for target_id, new_energy, new_defence, new_team, should_remove in effects:
+			if target_id not in self.entities:
+				continue
+			if should_remove:
+				self._remove_occupied(occupied, target_id)
+				self.remove_entity(target_id)
+				continue
+			target = self.entities[target_id]
+			target.info.energy = new_energy
+			target.info.defence = new_defence
+			if new_team:
+				target.info.team = Team(new_team)
+				self._reset_entity_player(target_id, new_team)
+				self.entity_index.sync(target_id)
+
+	def _commit_parallel_decision(self, decision, occupied) -> None:
+		if not self._same_parallel_actor(decision):
+			return
+		entity_id = decision.entity_id
+		entity = self.entities[entity_id]
+		info = entity.info
+		if 0 <= decision.updated_radio <= (1 << 28) - 1:
+			info.radio = decision.updated_radio
+
+		action = decision.primary_action
+		cooldown_cost = decision.cooldown_cost
+		if action is not None and action[0] == "move":
+			dx, dy = int(action[1]), int(action[2])
+			destination = (info.location.x + dx, info.location.y + dy)
+			if (
+				info.type.name != "planet"
+				and entity.cooldown < 1
+				and self._valid_direction(dx, dy)
+				and self.map.include(*destination)
+				and occupied.get(destination) in (None, entity_id)
+			):
+				self._remove_occupied(occupied, entity_id)
+				info.location = MapLocation(*destination)
+				occupied[destination] = entity_id
+				entity.cooldown += cooldown_cost
+				self.entity_index.sync(entity_id)
+
+		elif action is not None and action[0] == "create":
+			_, type_name, dx, dy, energy = action
+			dx, dy, energy = int(dx), int(dy), int(energy)
+			destination = (info.location.x + dx, info.location.y + dy)
+			if (
+				info.type.name == "planet"
+				and type_name in {"destroyer", "miner", "scout"}
+				and entity.cooldown < 1
+				and self._valid_direction(dx, dy)
+				and energy > 0
+				and info.energy >= energy
+				and self.map.include(*destination)
+				and occupied.get(destination) is None
+			):
+				info.energy -= energy
+				entity.cooldown += cooldown_cost
+				created_id = self.add_entity(
+					EntityType(type_name),
+					energy,
+					MapLocation(*destination),
+					info.team,
+					info.ID,
+				)
+				occupied[destination] = created_id
+
+		elif action is not None and action[0] == "analyze":
+			target = self.entities.get(int(action[1]))
+			if (
+				info.type.name == "scout"
+				and entity.cooldown < 1
+				and info.defence >= 10
+				and target is not None
+				and target.info.type.name == "miner"
+				and target.info.team != info.team
+				and target.info.location.distance_to(info.location) <= info.type.action_radius
+			):
+				target_energy = target.info.energy
+				self._remove_occupied(occupied, target.info.ID)
+				self.remove_entity(target.info.ID)
+				info.defence -= 10
+				entity.cooldown += cooldown_cost
+				self.overdrive_factor.append((info.team.tag, target_energy, self.round + 50))
+
+		elif action is not None and action[0] == "overdrive":
+			radius = int(action[1])
+			if (
+				info.type.name == "destroyer"
+				and entity.cooldown < 1
+				and 0 <= radius <= info.type.action_radius
+			):
+				# Overdrive has no fixed target and is never cancelled because a
+				# unit observed in the snapshot has since moved out of range.
+				self._execute_parallel_overdrive(entity_id, radius, occupied)
+
+		if entity_id not in self.entities:
+			return
+		entity = self.entities[entity_id]
+		info = entity.info
+
+		if info.type.name == "planet" and decision.charge_bid >= 0:
+			if info.energy >= decision.charge_cost and decision.charge_bid <= decision.charge_cost:
+				info.energy -= decision.charge_cost
+				self.charge_list.append((entity_id, int(decision.charge_bid)))
+			else:
+				self.charge_list.append((entity_id, 0))
+			info.defence = info.energy
+
+		if (
+			info.type.name == "miner"
+			and self.round >= entity.created_round + 50
+		):
+			created_planet = self.entities.get(entity.created_planet)
+			if created_planet is not None and created_planet.info.team == info.team:
+				created_planet.info.energy += engine_compute_miner_income(info.energy)
+
+	def close(self) -> None:
+		if self._parallel_runtime is not None:
+			self._parallel_runtime.close()
+			self._parallel_runtime = None
+
+	def __del__(self):
+		try:
+			self.close()
+		except Exception:
+			pass
 
 	def run_instance(self, entity_id: int) -> None:
 		entity = self.entities[entity_id]  # 获取实体
@@ -172,7 +408,7 @@ class Instance:
 						self.entities[rid].info.defence = new_defence
 						if new_team:  # 队伍转换
 							self.entities[rid].info.team = Team(new_team)
-							self.entity_instances[rid] = self.team_instances[int(new_team)].Player()
+							self._reset_entity_player(rid, new_team)
 							self.entity_index.sync(rid)
 
 			elif action[0] == "analyze":  # 分析，参数为 target

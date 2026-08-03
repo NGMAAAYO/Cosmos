@@ -13,14 +13,15 @@ from core import EntityType, MapLocation, Team
 from core.game import Instance
 
 
-def make_game(extra_entities, rounds, seed):
+def make_game(extra_entities, rounds, seed, parallel_cores=1, players=None):
 	random.seed(seed)
 	game = Instance(
-		["noact", "noact"],
+		players or ["noact", "noact"],
 		"maps/huge_square_x64.json",
 		rounds,
 		debug=True,
 		show_progress=False,
+		parallel_cores=parallel_cores,
 	)
 	occupied = {
 		(entity.info.location.x, entity.info.location.y)
@@ -43,21 +44,24 @@ def make_game(extra_entities, rounds, seed):
 	raise ValueError("requested entity count exceeds the available map cells")
 
 
-def benchmark(extra_entities, rounds, repeats, seed):
+def benchmark(extra_entities, rounds, repeats, seed, parallel_cores=1, players=None):
 	digest = None
 	samples = []
 	for _ in range(repeats):
-		game = make_game(extra_entities, rounds, seed)
-		gc.collect()
-		started = time.perf_counter()
-		for _ in range(rounds):
-			game.next_round()
-		samples.append(time.perf_counter() - started)
-		payload = json.dumps(game.replay, separators=(",", ":"))
-		current_digest = hashlib.sha256(payload.encode()).hexdigest()
-		if digest is not None and current_digest != digest:
-			raise RuntimeError("fixed-seed benchmark produced different replay data")
-		digest = current_digest
+		game = make_game(extra_entities, rounds, seed, parallel_cores, players)
+		try:
+			gc.collect()
+			started = time.perf_counter()
+			for _ in range(rounds):
+				game.next_round()
+			samples.append(time.perf_counter() - started)
+			payload = json.dumps(game.replay, separators=(",", ":"))
+			current_digest = hashlib.sha256(payload.encode()).hexdigest()
+			if digest is not None and current_digest != digest:
+				raise RuntimeError("fixed-seed benchmark produced different replay data")
+			digest = current_digest
+		finally:
+			game.close()
 	return samples, digest
 
 
@@ -67,11 +71,22 @@ def main():
 	parser.add_argument("--rounds", type=int, default=20)
 	parser.add_argument("--repeats", type=int, default=3)
 	parser.add_argument("--seed", type=int, default=123456)
+	parser.add_argument("--parallel-cores", type=int, default=1)
+	parser.add_argument("--players", nargs=2, default=["noact", "noact"])
 	args = parser.parse_args()
 
-	samples, digest = benchmark(args.entities, args.rounds, args.repeats, args.seed)
+	samples, digest = benchmark(
+		args.entities,
+		args.rounds,
+		args.repeats,
+		args.seed,
+		args.parallel_cores,
+		args.players,
+	)
 	print(f"entities: {args.entities + 4}")
 	print(f"rounds: {args.rounds}")
+	print(f"parallel_cores: {args.parallel_cores}")
+	print(f"players: {args.players}")
 	print(f"samples_seconds: {samples}")
 	print(f"best_seconds: {min(samples):.6f}")
 	print(f"replay_sha256: {digest}")
